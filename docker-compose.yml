@@ -1,0 +1,46 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: spotki-postgres
+    environment:
+      POSTGRES_DB: hotel_manager
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - spotki_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d hotel_manager"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: spotki-redis
+    ports:
+      - "6379:6379"
+
+  api:
+    build: .
+    container_name: spotki-hotel-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: hotel_manager
+      DB_USER: postgres
+      DB_PASS: postgres
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: SpotkiHotelSuperSecretKeyForJwtSigning2026MustBeAtLeast32BytesLong!
+    ports:
+      - "${API_PORT:-8088}:8080"
+
+volumes:
+  spotki_postgres_data:
