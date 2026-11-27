@@ -9,12 +9,17 @@ import com.spotkihotel.exception.ResourceNotFoundException;
 import com.spotkihotel.exception.UnauthorizedException;
 import com.spotkihotel.repository.AdminUserRepository;
 import com.spotkihotel.security.UserPrincipal;
+import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.ArrayList;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -26,7 +31,17 @@ public class StaffService {
     @Transactional(readOnly = true)
     public Page<StaffResponse> listStaff(Integer hotelId, StaffRole role, UserPrincipal principal, Pageable pageable) {
         Integer scopedHotel = principal.isAdminOrGlobalStaff() ? hotelId : principal.getHotelId();
-        return adminUserRepository.findByFilters(scopedHotel, role, pageable).map(this::toResponse);
+        Specification<AdminUser> spec = (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            if (scopedHotel != null) {
+                predicates.add(cb.equal(root.get("hotelId"), scopedHotel));
+            }
+            if (role != null) {
+                predicates.add(cb.equal(root.get("role"), role));
+            }
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+        return adminUserRepository.findAll(spec, pageable).map(this::toResponse);
     }
 
     @Transactional

@@ -38,6 +38,10 @@ app:
     refresh-expiration-ms: ${JWT_REFRESH_EXPIRATION_MS:604800000}
   token-store:
     redis: ${TOKEN_STORE_REDIS:true}
+  rate-limit:
+    auth:
+      max-requests: ${AUTH_RATE_LIMIT_MAX:20}
+      window-seconds: ${AUTH_RATE_LIMIT_WINDOW_SEC:60}
   hotel:
     vat-rate: 0.08
     deposit-rate: 0.50

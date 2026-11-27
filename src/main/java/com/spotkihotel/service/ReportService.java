@@ -9,10 +9,12 @@ import com.spotkihotel.repository.BookingRepository;
 import com.spotkihotel.repository.PaymentRepository;
 import com.spotkihotel.repository.RoomRepository;
 import com.spotkihotel.security.UserPrincipal;
+import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,11 +22,15 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
 @RequiredArgsConstructor
 public class ReportService {
+
+    private static final LocalDateTime MIN_DATE = LocalDateTime.of(1970, 1, 1, 0, 0);
+    private static final LocalDateTime MAX_DATE = LocalDateTime.of(2999, 12, 31, 23, 59, 59);
 
     private final RoomRepository roomRepository;
     private final BookingRepository bookingRepository;
@@ -61,18 +67,36 @@ public class ReportService {
         Integer scopedHotel = principal.isAdminOrGlobalStaff() ? hotelId : principal.getHotelId();
         LocalDateTime fromDt = from != null ? from.atStartOfDay() : null;
         LocalDateTime toDt = to != null ? to.atTime(LocalTime.MAX) : null;
-        return paymentRepository.findByFilters(scopedHotel, fromDt, toDt, pageable)
-                .map(this::toPaymentRecord);
+
+        Specification<Payment> spec = (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            if (scopedHotel != null) {
+                predicates.add(cb.equal(root.get("booking").get("room").get("hotel").get("id"), scopedHotel));
+            }
+            if (fromDt != null) {
+                predicates.add(cb.greaterThanOrEqualTo(root.get("paidAt"), fromDt));
+            }
+            if (toDt != null) {
+                predicates.add(cb.lessThanOrEqualTo(root.get("paidAt"), toDt));
+            }
+            query.orderBy(cb.desc(root.get("paidAt")));
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+        return paymentRepository.findAll(spec, pageable).map(this::toPaymentRecord);
     }
 
     @Transactional(readOnly = true)
     public RevenueReportResponse getRevenueReport(Integer hotelId, LocalDate from, LocalDate to, UserPrincipal principal) {
         Integer scopedHotel = principal.isAdminOrGlobalStaff() ? hotelId : principal.getHotelId();
-        LocalDateTime fromDt = from != null ? from.atStartOfDay() : null;
-        LocalDateTime toDt = to != null ? to.atTime(LocalTime.MAX) : null;
+        LocalDateTime fromDt = from != null ? from.atStartOfDay() : MIN_DATE;
+        LocalDateTime toDt = to != null ? to.atTime(LocalTime.MAX) : MAX_DATE;
 
-        BigDecimal total = paymentRepository.sumRevenueByFilters(scopedHotel, fromDt, toDt);
-        long count = paymentRepository.countByFilters(scopedHotel, fromDt, toDt);
+        BigDecimal total = scopedHotel == null
+                ? paymentRepository.sumRevenueBetween(fromDt, toDt)
+                : paymentRepository.sumRevenueByHotelBetween(scopedHotel, fromDt, toDt);
+        long count = scopedHotel == null
+                ? paymentRepository.countBetween(fromDt, toDt)
+                : paymentRepository.countByHotelBetween(scopedHotel, fromDt, toDt);
 
         return RevenueReportResponse.builder()
                 .from(from)

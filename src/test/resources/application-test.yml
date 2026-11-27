@@ -20,3 +20,7 @@ app:
     refresh-expiration-ms: 86400000
   token-store:
     redis: false
+  rate-limit:
+    auth:
+      max-requests: 20
+      window-seconds: 60

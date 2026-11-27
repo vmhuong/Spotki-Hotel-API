@@ -168,7 +168,17 @@ public class BookingService {
     @Transactional(readOnly = true)
     public Page<BookingResponse> adminListBookings(Integer hotelId, BookingStatus status, UserPrincipal principal, Pageable pageable) {
         Integer scopedHotelId = principal.isAdminOrGlobalStaff() ? hotelId : principal.getHotelId();
-        return bookingRepository.findByFilters(scopedHotelId, status, pageable).map(this::toBookingResponse);
+        org.springframework.data.jpa.domain.Specification<Booking> spec = (root, query, cb) -> {
+            List<jakarta.persistence.criteria.Predicate> predicates = new java.util.ArrayList<>();
+            if (scopedHotelId != null) {
+                predicates.add(cb.equal(root.get("room").get("hotel").get("id"), scopedHotelId));
+            }
+            if (status != null) {
+                predicates.add(cb.equal(root.get("status"), status));
+            }
+            return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
+        };
+        return bookingRepository.findAll(spec, pageable).map(this::toBookingResponse);
     }
 
     @Transactional

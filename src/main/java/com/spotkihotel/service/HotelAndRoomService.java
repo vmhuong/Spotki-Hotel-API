@@ -2,8 +2,10 @@ package com.spotkihotel.service;
 
 import com.spotkihotel.dto.hotel.HotelDtos.UpsertHotelRequest;
 import com.spotkihotel.dto.room.RoomDtos.*;
+import com.spotkihotel.entity.Booking;
 import com.spotkihotel.entity.Hotel;
 import com.spotkihotel.entity.Room;
+import com.spotkihotel.entity.enums.BookingStatus;
 import com.spotkihotel.entity.enums.HousekeepingStatus;
 import com.spotkihotel.entity.enums.RoomStatus;
 import com.spotkihotel.exception.BusinessException;
@@ -13,17 +15,22 @@ import com.spotkihotel.exception.UnauthorizedException;
 import com.spotkihotel.repository.HotelRepository;
 import com.spotkihotel.repository.RoomRepository;
 import com.spotkihotel.security.UserPrincipal;
+import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
+import jakarta.persistence.criteria.Subquery;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -95,8 +102,35 @@ public class HotelAndRoomService {
         if (checkIn != null && checkOut != null && !checkOut.isAfter(checkIn)) {
             throw new BusinessException("checkOut date must be after checkIn date.");
         }
-        return roomRepository.searchAvailableRooms(hotelId, minCapacity, maxPrice, status, checkIn, checkOut, pageable)
-                .map(this::toRoomResponse);
+        Specification<Room> spec = (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            predicates.add(cb.isTrue(root.get("isActive")));
+            if (hotelId != null) {
+                predicates.add(cb.equal(root.get("hotel").get("id"), hotelId));
+            }
+            if (minCapacity != null) {
+                predicates.add(cb.greaterThanOrEqualTo(root.get("capacity"), minCapacity));
+            }
+            if (maxPrice != null) {
+                predicates.add(cb.lessThanOrEqualTo(root.get("pricePerNight"), maxPrice));
+            }
+            if (status != null) {
+                predicates.add(cb.equal(root.get("status"), status));
+            }
+            if (checkIn != null && checkOut != null) {
+                Subquery<Integer> subquery = query.subquery(Integer.class);
+                Root<Booking> booking = subquery.from(Booking.class);
+                subquery.select(booking.get("id")).where(
+                        cb.equal(booking.get("room").get("id"), root.get("id")),
+                        booking.get("status").in(BookingStatus.booked, BookingStatus.checked_in),
+                        cb.lessThan(booking.get("checkIn"), checkOut),
+                        cb.greaterThan(booking.get("checkOut"), checkIn)
+                );
+                predicates.add(cb.not(cb.exists(subquery)));
+            }
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+        return roomRepository.findAll(spec, pageable).map(this::toRoomResponse);
     }
 
     @Transactional(readOnly = true)
@@ -178,12 +212,11 @@ public class HotelAndRoomService {
 
     @Transactional(readOnly = true)
     public List<RoomResponse> getHousekeepingQueue(UserPrincipal principal) {
-        Integer scopedHotelId = principal.isAdminOrGlobalStaff() ? null : principal.getHotelId();
-        return roomRepository
-                .findHousekeepingQueue(scopedHotelId, List.of(RoomStatus.cleaning, RoomStatus.maintenance))
-                .stream()
-                .map(this::toRoomResponse)
-                .toList();
+        List<RoomStatus> statuses = List.of(RoomStatus.cleaning, RoomStatus.maintenance);
+        List<Room> rooms = principal.isAdminOrGlobalStaff()
+                ? roomRepository.findByIsActiveTrueAndStatusInOrderByFloorNoAscRoomNumberAsc(statuses)
+                : roomRepository.findByIsActiveTrueAndHotelIdAndStatusInOrderByFloorNoAscRoomNumberAsc(principal.getHotelId(), statuses);
+        return rooms.stream().map(this::toRoomResponse).toList();
     }
 
     @Transactional

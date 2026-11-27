@@ -7,10 +7,10 @@ RESTful Backend API for multi-branch hotel management, room availability search,
 ## Tech Stack
 
 - **Language & Framework**: Java 21, Spring Boot 3.3.5
-- **Data & Caching**: Spring Data JPA, Hibernate, PostgreSQL 16, Flyway, Redis Cache & Token Store, H2 (for isolated integration tests)
-- **Security**: Spring Security 6, Stateless JWT + Refresh Token rotation (`jjwt`), Redis JWT logout blacklist, BCrypt, method-level RBAC (`@PreAuthorize`), IDOR & branch-scope protection, CORS
+- **Data & Caching**: Spring Data JPA, Hibernate, PostgreSQL 16, Flyway, Redis Cache & Token Store, Testcontainers (PostgreSQL), H2
+- **Security**: Spring Security 6, Stateless JWT + Refresh Token rotation (`jjwt`), Redis JWT logout blacklist, Redis Rate Limiting on `/api/v1/auth/**`, Security Audit Logs, BCrypt, method-level RBAC (`@PreAuthorize`), IDOR & branch-scope protection, CORS
 - **API Documentation**: SpringDoc OpenAPI 3 / Swagger UI
-- **Testing & CI**: JUnit 5, Mockito, Spring Boot Test, MockMvc, GitHub Actions CI
+- **Testing & CI**: JUnit 5, Mockito, Spring Boot Test, MockMvc, Testcontainers (`postgres:16-alpine`), GitHub Actions CI
 - **Containerization**: Docker, Docker Compose (PostgreSQL 16 + Redis 7 + Spring Boot API)
 
 ## Architecture Highlights
@@ -46,7 +46,8 @@ erDiagram
 
 ## Key Features
 
-- **Dual Authentication, Refresh Token & Redis Blacklist**: Separate JWT login flows for customers (`ROLE_CUSTOMER`) and staff (`ROLE_ADMIN`, `ROLE_MANAGER`, `ROLE_RECEPTION`, `ROLE_ACCOUNTING`, `ROLE_HOUSEKEEPING`), refresh token rotation (`/api/v1/auth/refresh`), and Redis-backed access token revocation on logout (`/api/v1/auth/logout`).
+- **Dual Authentication, Refresh Token, Rate Limit & Redis Blacklist**: Separate JWT login flows for customers (`ROLE_CUSTOMER`) and staff (`ROLE_ADMIN`, `ROLE_MANAGER`, `ROLE_RECEPTION`, `ROLE_ACCOUNTING`, `ROLE_HOUSEKEEPING`), refresh token rotation (`/api/v1/auth/refresh`), Redis-backed access token revocation on logout (`/api/v1/auth/logout`), and fixed-window Redis rate limiting (`429 Too Many Requests`) protecting `/api/v1/auth/**`.
+- **Security Audit Logs**: Admin endpoint (`GET /api/v1/admin/audit-logs`) to inspect login events, blocked rate-limit attempts, bookings, and scheduled cancellations.
 - **Branch Scope & IDOR Protection**: Non-admin staff are restricted to their assigned `hotelId` across rooms, bookings, staff, payments, and housekeeping; customers can only view/edit/review their own bookings and invoices.
 - **Room Search & Concurrency Control**: Date-range availability filtering excluding rooms with active `booked` or `checked_in` reservations, plus `PESSIMISTIC_WRITE` row locking during booking creation and customer edits to prevent double-booking race conditions.
 - **Booking & Invoicing Lifecycle**:
@@ -65,7 +66,7 @@ erDiagram
 | **Catalog & Housekeeping** | `GET /api/v1/hotels`, `/rooms`, `/services`; `POST/PUT/PATCH/DELETE /api/v1/admin/**` | Public / Staff |
 | **Bookings & Billing** | `POST /api/v1/bookings`, `GET /me`, `PUT /{id}/customer-edit`, `POST .../check-in`, `.../check-out`, `GET /{id}/invoice` | Public / Owner / Staff |
 | **Payment Gateway** | `POST /api/v1/payments/gateway/initiate`, `POST /api/v1/payments/gateway/callback` | Authenticated / HMAC Webhook |
-| **Staff, Guests & Reports** | `GET/POST/PATCH /api/v1/admin/staff`, `/guests`, `/payments`, `/reports/summary`, `/revenue`, `/top-rooms` | `ADMIN` / `MANAGER` / `ACCOUNTING` |
+| **Staff, Guests & Reports** | `GET/POST/PATCH /api/v1/admin/staff`, `/guests`, `/guests/{id}/bookings`, `/payments`, `/reports/summary`, `/revenue`, `/top-rooms`, `/audit-logs` | `ADMIN` / `MANAGER` / `ACCOUNTING` |
 
 ## Getting Started
 

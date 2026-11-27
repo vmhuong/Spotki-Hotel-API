@@ -3,6 +3,7 @@ package com.spotkihotel.config;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.spotkihotel.dto.ApiResponse;
 import com.spotkihotel.security.JwtAuthenticationFilter;
+import com.spotkihotel.security.RateLimitFilter;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
@@ -31,6 +32,7 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final RateLimitFilter rateLimitFilter;
     private final ObjectMapper objectMapper;
 
     @Bean
@@ -65,6 +67,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/admin/**").hasAnyRole("ADMIN", "MANAGER", "RECEPTION", "ACCOUNTING", "HOUSEKEEPING")
                         .anyRequest().authenticated()
                 )
+                .addFilterBefore(rateLimitFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
