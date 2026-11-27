@@ -38,6 +38,15 @@ public class BookingController {
                 .body(ApiResponse.ok("Booking created with 50% deposit", bookingService.createBooking(request, principal)));
     }
 
+    @GetMapping("/bookings/lookup")
+    @Operation(summary = "Lookup a guest booking by bookingCode and contact phone")
+    public ResponseEntity<ApiResponse<BookingResponse>> lookupBooking(
+            @RequestParam String bookingCode,
+            @RequestParam String phone
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(bookingService.lookupBooking(bookingCode, phone)));
+    }
+
     @GetMapping("/bookings/me")
     @PreAuthorize("hasRole('CUSTOMER')")
     @Operation(summary = "List bookings of the authenticated customer")
@@ -74,10 +83,11 @@ public class BookingController {
     public ResponseEntity<ApiResponse<Page<BookingResponse>>> adminListBookings(
             @RequestParam(required = false) Integer hotelId,
             @RequestParam(required = false) BookingStatus status,
+            @RequestParam(required = false) String keyword,
             @AuthenticationPrincipal UserPrincipal principal,
             @PageableDefault(size = 15) Pageable pageable
     ) {
-        return ResponseEntity.ok(ApiResponse.ok(bookingService.adminListBookings(hotelId, status, principal, pageable)));
+        return ResponseEntity.ok(ApiResponse.ok(bookingService.adminListBookings(hotelId, status, keyword, principal, pageable)));
     }
 
     @PostMapping("/admin/bookings/{id}/check-in")

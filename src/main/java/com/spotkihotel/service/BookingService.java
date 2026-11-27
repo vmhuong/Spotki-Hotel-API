@@ -166,7 +166,7 @@ public class BookingService {
     }
 
     @Transactional(readOnly = true)
-    public Page<BookingResponse> adminListBookings(Integer hotelId, BookingStatus status, UserPrincipal principal, Pageable pageable) {
+    public Page<BookingResponse> adminListBookings(Integer hotelId, BookingStatus status, String keyword, UserPrincipal principal, Pageable pageable) {
         Integer scopedHotelId = principal.isAdminOrGlobalStaff() ? hotelId : principal.getHotelId();
         org.springframework.data.jpa.domain.Specification<Booking> spec = (root, query, cb) -> {
             List<jakarta.persistence.criteria.Predicate> predicates = new java.util.ArrayList<>();
@@ -176,9 +176,29 @@ public class BookingService {
             if (status != null) {
                 predicates.add(cb.equal(root.get("status"), status));
             }
+            if (keyword != null && !keyword.isBlank()) {
+                String pattern = "%" + keyword.trim().toLowerCase() + "%";
+                predicates.add(cb.or(
+                        cb.like(cb.lower(root.get("bookingCode")), pattern),
+                        cb.like(cb.lower(root.get("contactPhone")), pattern),
+                        cb.like(cb.lower(root.get("contactName")), pattern)
+                ));
+            }
+            query.orderBy(cb.desc(root.get("createdAt")));
             return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
         };
         return bookingRepository.findAll(spec, pageable).map(this::toBookingResponse);
+    }
+
+    @Transactional(readOnly = true)
+    public BookingResponse lookupBooking(String bookingCode, String phone) {
+        Booking booking = bookingRepository.findByBookingCode(bookingCode.trim().toUpperCase())
+                .orElseThrow(() -> new ResourceNotFoundException("Booking not found: " + bookingCode));
+        String storedPhone = booking.getContactPhone() != null ? booking.getContactPhone() : booking.getGuest().getPhone();
+        if (storedPhone == null || !storedPhone.trim().equals(phone.trim())) {
+            throw new UnauthorizedException("Phone number does not match this booking.");
+        }
+        return toBookingResponse(booking);
     }
 
     @Transactional
@@ -319,15 +339,45 @@ public class BookingService {
         BigDecimal baseRoomCharge = calculateBaseRoomCharge(booking, room);
         BigDecimal extraSurcharge = calculateExtraGuestSurcharge(booking, room, baseRoomCharge);
 
-        BigDecimal serviceCharge = bookingServiceItemRepository.findByBookingIdOrderByCreatedAtAsc(booking.getId())
-                .stream()
-                .map(item -> item.getPrice().multiply(BigDecimal.valueOf(item.getQuantity())))
+        List<BookingServiceItem> rawItems = bookingServiceItemRepository.findByBookingIdOrderByCreatedAtAsc(booking.getId());
+        List<BookingServiceItemResponse> serviceItems = rawItems.stream()
+                .map(item -> BookingServiceItemResponse.builder()
+                        .id(item.getId())
+                        .bookingId(booking.getId())
+                        .serviceId(item.getService() != null ? item.getService().getId() : null)
+                        .serviceName(item.getService() != null ? item.getService().getServiceName() : null)
+                        .quantity(item.getQuantity())
+                        .unitPrice(item.getPrice())
+                        .lineTotal(item.getPrice().multiply(BigDecimal.valueOf(item.getQuantity())))
+                        .createdAt(item.getCreatedAt())
+                        .build())
+                .toList();
+
+        BigDecimal serviceCharge = serviceItems.stream()
+                .map(BookingServiceItemResponse::getLineTotal)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        List<PaymentResponse> paymentItems = paymentRepository.findByBookingIdOrderByPaidAtAsc(booking.getId())
+                .stream()
+                .map(p -> PaymentResponse.builder()
+                        .id(p.getId())
+                        .bookingId(booking.getId())
+                        .bookingCode(booking.getBookingCode())
+                        .amount(p.getAmount())
+                        .method(p.getMethod())
+                        .paidAt(p.getPaidAt())
+                        .payerName(p.getPayerName())
+                        .cashierName(p.getCashierName())
+                        .note(p.getNote())
+                        .build())
+                .toList();
 
         BigDecimal subtotal = baseRoomCharge.add(extraSurcharge).add(serviceCharge);
         BigDecimal vatAmount = subtotal.multiply(vatRate).setScale(0, RoundingMode.HALF_UP);
         BigDecimal grandTotal = subtotal.add(vatAmount);
-        BigDecimal totalPaid = paymentRepository.sumPaidByBookingId(booking.getId());
+        BigDecimal totalPaid = paymentItems.stream()
+                .map(PaymentResponse::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal remaining = grandTotal.subtract(totalPaid).max(BigDecimal.ZERO);
 
         return InvoiceSummaryResponse.builder()
@@ -342,6 +392,8 @@ public class BookingService {
                 .totalPaid(totalPaid)
                 .remainingBalance(remaining)
                 .loyaltyPointsEarned(0)
+                .services(serviceItems)
+                .payments(paymentItems)
                 .build();
     }
 

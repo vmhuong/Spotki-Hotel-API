@@ -67,8 +67,21 @@ class BookingAndAuthIntegrationTest {
                 .andExpect(jsonPath("$.data.depositAmount").value(1800000))
                 .andReturn();
 
-        int bookingId = objectMapper.readTree(bookingRes.getResponse().getContentAsString())
-                .path("data").path("id").asInt();
+        JsonNode createdBooking = objectMapper.readTree(bookingRes.getResponse().getContentAsString()).path("data");
+        int bookingId = createdBooking.path("id").asInt();
+        String bookingCode = createdBooking.path("bookingCode").asText();
+
+        // Lookup guest booking publicly by code & phone
+        mockMvc.perform(get("/api/v1/bookings/lookup")
+                        .param("bookingCode", bookingCode)
+                        .param("phone", "0901234567"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.bookingCode").value(bookingCode));
+
+        // Room catalog returns image URLs from V4 migration
+        mockMvc.perform(get("/api/v1/rooms/1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.imageUrl").isNotEmpty());
 
         // 4. Overlapping booking should return 409 Conflict
         mockMvc.perform(post("/api/v1/bookings")
@@ -113,7 +126,9 @@ class BookingAndAuthIntegrationTest {
                         .header("Authorization", "Bearer " + adminToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.grandTotal").value(3920400))
-                .andExpect(jsonPath("$.data.loyaltyPointsEarned").value(392));
+                .andExpect(jsonPath("$.data.loyaltyPointsEarned").value(392))
+                .andExpect(jsonPath("$.data.services.length()").value(1))
+                .andExpect(jsonPath("$.data.payments.length()").value(2));
     }
 
     private String extractToken(MvcResult result) throws Exception {

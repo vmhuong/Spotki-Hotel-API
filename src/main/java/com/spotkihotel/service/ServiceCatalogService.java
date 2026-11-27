@@ -24,6 +24,11 @@ public class ServiceCatalogService {
         return hotelServiceRepository.findByIsActiveTrueOrderByServiceNameAsc();
     }
 
+    @Transactional(readOnly = true)
+    public List<HotelService> getAllServicesForAdmin() {
+        return hotelServiceRepository.findAllByOrderByServiceNameAsc();
+    }
+
     @CacheEvict(value = "services", allEntries = true)
     @Transactional
     public HotelService createService(UpsertServiceRequest request) {

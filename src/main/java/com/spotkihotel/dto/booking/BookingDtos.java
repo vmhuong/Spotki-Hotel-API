@@ -11,6 +11,7 @@ import lombok.NoArgsConstructor;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 
 public class BookingDtos {
 
@@ -139,6 +140,8 @@ public class BookingDtos {
         private BigDecimal totalPaid;
         private BigDecimal remainingBalance;
         private Integer loyaltyPointsEarned;
+        private List<BookingServiceItemResponse> services;
+        private List<PaymentResponse> payments;
     }
 
     @Data

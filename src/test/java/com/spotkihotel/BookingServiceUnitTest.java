@@ -72,12 +72,20 @@ class BookingServiceUnitTest {
                 .build();
 
         BookingServiceItem item = BookingServiceItem.builder()
+                .id(1)
+                .service(HotelService.builder().id(1).serviceName("Nuoc suoi").build())
                 .quantity(2)
                 .price(new BigDecimal("50000")) // 100,000
                 .build();
 
+        Payment deposit = Payment.builder()
+                .id(1)
+                .amount(new BigDecimal("1250000"))
+                .method("Deposit 50%")
+                .build();
+
         when(bookingServiceItemRepository.findByBookingIdOrderByCreatedAtAsc(5)).thenReturn(List.of(item));
-        when(paymentRepository.sumPaidByBookingId(5)).thenReturn(new BigDecimal("1250000"));
+        when(paymentRepository.findByBookingIdOrderByPaidAtAsc(5)).thenReturn(List.of(deposit));
 
         InvoiceSummaryResponse invoice = bookingService.buildInvoiceSummary(booking);
 

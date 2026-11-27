@@ -12,13 +12,17 @@ import com.spotkihotel.exception.UnauthorizedException;
 import com.spotkihotel.repository.BookingRepository;
 import com.spotkihotel.repository.ReviewRepository;
 import com.spotkihotel.security.UserPrincipal;
+import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -59,6 +63,22 @@ public class ReviewService {
     public Page<ReviewResponse> getVisibleRoomReviews(Integer roomId, Pageable pageable) {
         return reviewRepository.findByRoomIdAndStatusOrderByCreatedAtDesc(roomId, ReviewStatus.visible, pageable)
                 .map(this::toResponse);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<ReviewResponse> adminListReviews(ReviewStatus status, Integer roomId, Pageable pageable) {
+        Specification<Review> spec = (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            if (status != null) {
+                predicates.add(cb.equal(root.get("status"), status));
+            }
+            if (roomId != null) {
+                predicates.add(cb.equal(root.get("room").get("id"), roomId));
+            }
+            query.orderBy(cb.desc(root.get("createdAt")));
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+        return reviewRepository.findAll(spec, pageable).map(this::toResponse);
     }
 
     @Transactional

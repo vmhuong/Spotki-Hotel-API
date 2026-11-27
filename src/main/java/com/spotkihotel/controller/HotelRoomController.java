@@ -43,6 +43,13 @@ public class HotelRoomController {
         return ResponseEntity.ok(ApiResponse.ok(hotelAndRoomService.getActiveHotels()));
     }
 
+    @GetMapping("/admin/hotels")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @Operation(summary = "List all hotel branches including inactive (Admin/Manager)")
+    public ResponseEntity<ApiResponse<List<Hotel>>> adminGetHotels() {
+        return ResponseEntity.ok(ApiResponse.ok(hotelAndRoomService.getAllHotelsForAdmin()));
+    }
+
     @PostMapping("/admin/hotels")
     @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Create a new hotel branch (Admin)")
@@ -78,12 +85,14 @@ public class HotelRoomController {
             @RequestParam(required = false) Integer minCapacity,
             @RequestParam(required = false) BigDecimal maxPrice,
             @RequestParam(required = false) RoomStatus status,
+            @RequestParam(required = false) String roomType,
+            @RequestParam(required = false) String keyword,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate checkIn,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate checkOut,
             @PageableDefault(size = 10) Pageable pageable
     ) {
         return ResponseEntity.ok(ApiResponse.ok(
-                hotelAndRoomService.searchRooms(hotelId, minCapacity, maxPrice, status, checkIn, checkOut, pageable)
+                hotelAndRoomService.searchRooms(hotelId, minCapacity, maxPrice, status, roomType, keyword, checkIn, checkOut, pageable)
         ));
     }
 
@@ -141,6 +150,13 @@ public class HotelRoomController {
     @Operation(summary = "List active room services")
     public ResponseEntity<ApiResponse<List<HotelService>>> getServices() {
         return ResponseEntity.ok(ApiResponse.ok(serviceCatalogService.getActiveServices()));
+    }
+
+    @GetMapping("/admin/services")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @Operation(summary = "List all room services including inactive")
+    public ResponseEntity<ApiResponse<List<HotelService>>> adminGetServices() {
+        return ResponseEntity.ok(ApiResponse.ok(serviceCatalogService.getAllServicesForAdmin()));
     }
 
     @PostMapping("/admin/services")

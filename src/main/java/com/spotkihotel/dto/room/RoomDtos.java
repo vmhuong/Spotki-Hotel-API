@@ -34,6 +34,8 @@ public class RoomDtos {
         private BigDecimal extraGuestRatePercent;
         private String amenities;
         private String packageName;
+        private String imageUrl;
+        private String galleryUrls;
         private RoomStatus status;
         private HousekeepingStatus housekeepingStatus;
     }
@@ -71,6 +73,8 @@ public class RoomDtos {
         private BigDecimal extraGuestRatePercent = new BigDecimal("25.00");
         private String amenities;
         private String packageName;
+        private String imageUrl;
+        private String galleryUrls;
     }
 
     @Data

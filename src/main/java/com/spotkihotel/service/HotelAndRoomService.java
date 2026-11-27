@@ -46,6 +46,11 @@ public class HotelAndRoomService {
         return hotelRepository.findByIsActiveTrueOrderByStarRatingDescHotelNameAsc();
     }
 
+    @Transactional(readOnly = true)
+    public List<Hotel> getAllHotelsForAdmin() {
+        return hotelRepository.findAll();
+    }
+
     @CacheEvict(value = "hotels", allEntries = true)
     @Transactional
     public Hotel createHotel(UpsertHotelRequest request) {
@@ -95,6 +100,8 @@ public class HotelAndRoomService {
             Integer minCapacity,
             BigDecimal maxPrice,
             RoomStatus status,
+            String roomType,
+            String keyword,
             LocalDate checkIn,
             LocalDate checkOut,
             Pageable pageable
@@ -116,6 +123,17 @@ public class HotelAndRoomService {
             }
             if (status != null) {
                 predicates.add(cb.equal(root.get("status"), status));
+            }
+            if (roomType != null && !roomType.isBlank()) {
+                predicates.add(cb.like(cb.lower(root.get("roomType")), "%" + roomType.trim().toLowerCase() + "%"));
+            }
+            if (keyword != null && !keyword.isBlank()) {
+                String pattern = "%" + keyword.trim().toLowerCase() + "%";
+                predicates.add(cb.or(
+                        cb.like(cb.lower(root.get("roomNumber")), pattern),
+                        cb.like(cb.lower(root.get("roomType")), pattern),
+                        cb.like(cb.lower(root.get("amenities")), pattern)
+                ));
             }
             if (checkIn != null && checkOut != null) {
                 Subquery<Integer> subquery = query.subquery(Integer.class);
@@ -165,6 +183,8 @@ public class HotelAndRoomService {
                 .extraGuestRatePercent(request.getExtraGuestRatePercent())
                 .amenities(request.getAmenities())
                 .packageName(request.getPackageName())
+                .imageUrl(request.getImageUrl())
+                .galleryUrls(request.getGalleryUrls())
                 .status(RoomStatus.available)
                 .isActive(true)
                 .build());
@@ -189,6 +209,8 @@ public class HotelAndRoomService {
         }
         room.setAmenities(request.getAmenities());
         room.setPackageName(request.getPackageName());
+        if (request.getImageUrl() != null) room.setImageUrl(request.getImageUrl());
+        if (request.getGalleryUrls() != null) room.setGalleryUrls(request.getGalleryUrls());
         return toRoomResponse(roomRepository.save(room));
     }
 
@@ -267,6 +289,8 @@ public class HotelAndRoomService {
                 .extraGuestRatePercent(room.getExtraGuestRatePercent())
                 .amenities(room.getAmenities())
                 .packageName(room.getPackageName())
+                .imageUrl(room.getImageUrl())
+                .galleryUrls(room.getGalleryUrls())
                 .status(room.getStatus())
                 .housekeepingStatus(room.getHousekeepingStatus())
                 .build();

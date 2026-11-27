@@ -46,6 +46,17 @@ public class ReviewController {
         return ResponseEntity.ok(ApiResponse.ok(reviewService.getVisibleRoomReviews(roomId, pageable)));
     }
 
+    @GetMapping("/admin/reviews")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @Operation(summary = "List all reviews including hidden for moderation")
+    public ResponseEntity<ApiResponse<Page<ReviewResponse>>> adminListReviews(
+            @RequestParam(required = false) ReviewStatus status,
+            @RequestParam(required = false) Integer roomId,
+            @PageableDefault(size = 20) Pageable pageable
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(reviewService.adminListReviews(status, roomId, pageable)));
+    }
+
     @PatchMapping("/admin/reviews/{id}/status")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     @Operation(summary = "Show or hide a review (Admin/Manager)")

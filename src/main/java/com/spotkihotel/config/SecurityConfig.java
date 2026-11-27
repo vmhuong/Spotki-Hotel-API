@@ -61,7 +61,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/hotels/**",
                                 "/api/v1/rooms/**",
-                                "/api/v1/services/**"
+                                "/api/v1/services/**",
+                                "/api/v1/bookings/lookup"
                         ).permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/bookings").permitAll()
                         .requestMatchers("/api/v1/admin/**").hasAnyRole("ADMIN", "MANAGER", "RECEPTION", "ACCOUNTING", "HOUSEKEEPING")

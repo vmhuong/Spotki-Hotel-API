@@ -7,4 +7,5 @@ import java.util.List;
 
 public interface HotelServiceRepository extends JpaRepository<HotelService, Integer> {
     List<HotelService> findByIsActiveTrueOrderByServiceNameAsc();
+    List<HotelService> findAllByOrderByServiceNameAsc();
 }
