@@ -50,7 +50,18 @@ public interface RoomRepository extends JpaRepository<Room, Integer> {
             Pageable pageable
     );
 
-    List<Room> findByStatusInAndIsActiveTrueOrderByFloorNoAscRoomNumberAsc(List<RoomStatus> statuses);
+    @EntityGraph(attributePaths = {"hotel"})
+    @Query("""
+        SELECT r FROM Room r
+        WHERE r.isActive = true
+          AND r.status IN :statuses
+          AND (:hotelId IS NULL OR r.hotel.id = :hotelId)
+        ORDER BY r.floorNo ASC, r.roomNumber ASC
+        """)
+    List<Room> findHousekeepingQueue(
+            @Param("hotelId") Integer hotelId,
+            @Param("statuses") List<RoomStatus> statuses
+    );
 
     boolean existsByRoomNumber(String roomNumber);
 }

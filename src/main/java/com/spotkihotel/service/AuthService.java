@@ -9,11 +9,15 @@ import com.spotkihotel.exception.UnauthorizedException;
 import com.spotkihotel.repository.AdminUserRepository;
 import com.spotkihotel.repository.GuestRepository;
 import com.spotkihotel.security.JwtService;
+import com.spotkihotel.security.TokenStoreService;
 import com.spotkihotel.security.UserPrincipal;
+import io.jsonwebtoken.Claims;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -23,6 +27,7 @@ public class AuthService {
     private final AdminUserRepository adminUserRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+    private final TokenStoreService tokenStoreService;
     private final SecurityLogService securityLogService;
 
     @Transactional
@@ -104,10 +109,79 @@ public class AuthService {
                 .build(), admin.getFullName());
     }
 
+    @Transactional(readOnly = true)
+    public AuthResponse refreshToken(RefreshTokenRequest request) {
+        String token = request.getRefreshToken();
+        if (!jwtService.isTokenValid(token)) {
+            throw new UnauthorizedException("Invalid or expired refresh token.");
+        }
+        Claims claims = jwtService.parseToken(token);
+        if (!"refresh".equals(claims.get("type", String.class))) {
+            throw new UnauthorizedException("Provided token is not a refresh token.");
+        }
+        String tokenId = claims.getId();
+        if (!tokenStoreService.isRefreshTokenActive(tokenId)) {
+            throw new UnauthorizedException("Refresh token has been revoked.");
+        }
+
+        // Rotate refresh token
+        tokenStoreService.revokeRefreshToken(tokenId);
+
+        Integer uid = claims.get("uid", Integer.class);
+        String userType = claims.get("userType", String.class);
+
+        if ("CUSTOMER".equals(userType)) {
+            Guest guest = guestRepository.findById(uid)
+                    .filter(g -> Boolean.TRUE.equals(g.getCustomerIsActive()))
+                    .orElseThrow(() -> new UnauthorizedException("Customer account is inactive."));
+            return buildAuthResponse(UserPrincipal.builder()
+                    .id(guest.getId())
+                    .username(guest.getEmail())
+                    .userType("CUSTOMER")
+                    .role("ROLE_CUSTOMER")
+                    .active(true)
+                    .build(), guest.getFullName());
+        } else {
+            AdminUser admin = adminUserRepository.findById(uid)
+                    .filter(a -> Boolean.TRUE.equals(a.getIsActive()))
+                    .orElseThrow(() -> new UnauthorizedException("Staff account is inactive."));
+            String roleName = "ROLE_" + admin.getRole().name().toUpperCase();
+            return buildAuthResponse(UserPrincipal.builder()
+                    .id(admin.getId())
+                    .username(admin.getUsername())
+                    .userType("ADMIN")
+                    .role(roleName)
+                    .hotelId(admin.getHotelId())
+                    .active(true)
+                    .build(), admin.getFullName());
+        }
+    }
+
+    public void logout(String bearerHeader, RefreshTokenRequest refreshRequest) {
+        if (bearerHeader != null && bearerHeader.startsWith("Bearer ")) {
+            String accessToken = bearerHeader.substring(7);
+            if (jwtService.isTokenValid(accessToken)) {
+                Claims claims = jwtService.parseToken(accessToken);
+                long remainingMs = jwtService.getRemainingTtlMs(claims);
+                tokenStoreService.blacklistAccessToken(claims.getId(), remainingMs);
+            }
+        }
+        if (refreshRequest != null && refreshRequest.getRefreshToken() != null
+                && jwtService.isTokenValid(refreshRequest.getRefreshToken())) {
+            Claims refreshClaims = jwtService.parseToken(refreshRequest.getRefreshToken());
+            tokenStoreService.revokeRefreshToken(refreshClaims.getId());
+        }
+    }
+
     private AuthResponse buildAuthResponse(UserPrincipal principal, String fullName) {
-        String token = jwtService.generateToken(principal);
+        String accessToken = jwtService.generateToken(principal);
+        String refreshId = UUID.randomUUID().toString();
+        String refreshToken = jwtService.generateRefreshToken(principal, refreshId);
+        tokenStoreService.storeRefreshToken(refreshId, principal.getUsername(), jwtService.getRefreshExpirationMs());
+
         return AuthResponse.builder()
-                .accessToken(token)
+                .accessToken(accessToken)
+                .refreshToken(refreshToken)
                 .tokenType("Bearer")
                 .expiresInMs(jwtService.getExpirationMs())
                 .userId(principal.getId())

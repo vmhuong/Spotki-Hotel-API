@@ -176,19 +176,20 @@ public class HotelAndRoomService {
     }
 
     @Transactional(readOnly = true)
-    public List<RoomResponse> getHousekeepingQueue() {
+    public List<RoomResponse> getHousekeepingQueue(UserPrincipal principal) {
+        Integer scopedHotelId = principal.isAdminOrGlobalStaff() ? null : principal.getHotelId();
         return roomRepository
-                .findByStatusInAndIsActiveTrueOrderByFloorNoAscRoomNumberAsc(
-                        List.of(RoomStatus.cleaning, RoomStatus.maintenance))
+                .findHousekeepingQueue(scopedHotelId, List.of(RoomStatus.cleaning, RoomStatus.maintenance))
                 .stream()
                 .map(this::toRoomResponse)
                 .toList();
     }
 
     @Transactional
-    public RoomResponse updateHousekeeping(Integer roomId, UpdateHousekeepingRequest request) {
+    public RoomResponse updateHousekeeping(Integer roomId, UpdateHousekeepingRequest request, UserPrincipal principal) {
         Room room = roomRepository.findById(roomId)
                 .orElseThrow(() -> new ResourceNotFoundException("Room not found: " + roomId));
+        enforceRoomScope(principal, room);
 
         if (request.getHousekeepingStatus() == HousekeepingStatus.cleaning) {
             room.setStatus(RoomStatus.cleaning);

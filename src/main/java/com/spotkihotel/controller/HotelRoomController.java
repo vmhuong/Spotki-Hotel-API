@@ -173,18 +173,21 @@ public class HotelRoomController {
 
     @GetMapping("/admin/housekeeping/rooms")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'HOUSEKEEPING', 'RECEPTION')")
-    @Operation(summary = "Get rooms requiring housekeeping or maintenance")
-    public ResponseEntity<ApiResponse<List<RoomResponse>>> getHousekeepingQueue() {
-        return ResponseEntity.ok(ApiResponse.ok(hotelAndRoomService.getHousekeepingQueue()));
+    @Operation(summary = "Get rooms requiring housekeeping or maintenance (scoped by branch)")
+    public ResponseEntity<ApiResponse<List<RoomResponse>>> getHousekeepingQueue(
+            @AuthenticationPrincipal UserPrincipal principal
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(hotelAndRoomService.getHousekeepingQueue(principal)));
     }
 
     @PatchMapping("/admin/housekeeping/rooms/{id}")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'HOUSEKEEPING')")
-    @Operation(summary = "Update room housekeeping status")
+    @Operation(summary = "Update room housekeeping status (scoped by branch)")
     public ResponseEntity<ApiResponse<RoomResponse>> updateHousekeeping(
             @PathVariable Integer id,
-            @RequestBody UpdateHousekeepingRequest request
+            @RequestBody UpdateHousekeepingRequest request,
+            @AuthenticationPrincipal UserPrincipal principal
     ) {
-        return ResponseEntity.ok(ApiResponse.ok("Housekeeping updated", hotelAndRoomService.updateHousekeeping(id, request)));
+        return ResponseEntity.ok(ApiResponse.ok("Housekeeping updated", hotelAndRoomService.updateHousekeeping(id, request, principal)));
     }
 }

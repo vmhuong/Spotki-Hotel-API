@@ -56,11 +56,20 @@ public class AuthDtos {
     }
 
     @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class RefreshTokenRequest {
+        @NotBlank(message = "Refresh token is required")
+        private String refreshToken;
+    }
+
+    @Data
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
     public static class AuthResponse {
         private String accessToken;
+        private String refreshToken;
         private String tokenType;
         private long expiresInMs;
         private Integer userId;

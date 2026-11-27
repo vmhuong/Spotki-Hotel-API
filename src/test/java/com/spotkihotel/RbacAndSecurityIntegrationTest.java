@@ -105,6 +105,52 @@ class RbacAndSecurityIntegrationTest {
                                 }
                                 """))
                 .andExpect(status().isUnauthorized());
+
+        // Housekeeping branch isolation: Saigon housekeeping (hotelId=1) cannot update room 3 (Da Nang, hotelId=2)
+        mockMvc.perform(patch("/api/v1/admin/housekeeping/rooms/3")
+                        .header("Authorization", "Bearer " + hkToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"housekeepingStatus\":\"cleaning\"}"))
+                .andExpect(status().isUnauthorized());
+
+        // Refresh Token rotation & Logout blacklist
+        MvcResult loginRes = mockMvc.perform(post("/api/v1/auth/customer/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"guest@spotkihotel.vn\",\"password\":\"Customer@12345\"}"))
+                .andExpect(status().isOk())
+                .andReturn();
+        JsonNode authData = objectMapper.readTree(loginRes.getResponse().getContentAsString()).path("data");
+        String accessToken = authData.path("accessToken").asText();
+        String refreshToken = authData.path("refreshToken").asText();
+
+        // Refresh rotates token
+        MvcResult refreshRes = mockMvc.perform(post("/api/v1/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"refreshToken\":\"" + refreshToken + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.accessToken").isNotEmpty())
+                .andReturn();
+        String newAccessToken = extractToken(refreshRes);
+
+        // Old refresh token cannot be reused after rotation
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"refreshToken\":\"" + refreshToken + "\"}"))
+                .andExpect(status().isUnauthorized());
+
+        // Logout blacklists access token
+        mockMvc.perform(post("/api/v1/auth/logout")
+                        .header("Authorization", "Bearer " + newAccessToken))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/v1/customers/me")
+                        .header("Authorization", "Bearer " + newAccessToken))
+                .andExpect(status().isForbidden());
+
+        // Original access token still works until logged out
+        mockMvc.perform(get("/api/v1/customers/me")
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk());
     }
 
     private String loginCustomer(String email, String password) throws Exception {

@@ -124,8 +124,11 @@ public class BookingService {
         }
         validateDates(request.getCheckIn(), request.getCheckOut(), booking.getPricingMode());
 
+        Room room = roomRepository.findByIdForUpdate(booking.getRoom().getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Room not found: " + booking.getRoom().getId()));
+
         long overlaps = bookingRepository.countOverlappingBookings(
-                booking.getRoom().getId(), booking.getId(), request.getCheckIn(), request.getCheckOut());
+                room.getId(), booking.getId(), request.getCheckIn(), request.getCheckOut());
         if (overlaps > 0) {
             throw new ConflictException("Room is not available for the updated dates.");
         }

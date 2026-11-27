@@ -19,6 +19,7 @@ import java.io.IOException;
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
+    private final TokenStoreService tokenStoreService;
 
     @Override
     protected void doFilterInternal(
@@ -35,6 +36,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String token = authHeader.substring(7);
         if (jwtService.isTokenValid(token) && SecurityContextHolder.getContext().getAuthentication() == null) {
             Claims claims = jwtService.parseToken(token);
+            String tokenType = claims.get("type", String.class);
+            String jti = claims.getId();
+
+            if (!"access".equals(tokenType) || tokenStoreService.isAccessTokenBlacklisted(jti)) {
+                filterChain.doFilter(request, response);
+                return;
+            }
+
             Integer uid = claims.get("uid", Integer.class);
             String userType = claims.get("userType", String.class);
             String role = claims.get("role", String.class);

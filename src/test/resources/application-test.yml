@@ -17,3 +17,6 @@ app:
   jwt:
     secret: TestJwtSecretKeyForSpotkiHotelIntegrationTestsMustBeLongEnough12345
     expiration-ms: 3600000
+    refresh-expiration-ms: 86400000
+  token-store:
+    redis: false
