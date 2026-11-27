@@ -87,18 +87,33 @@ class BookingAndAuthIntegrationTest {
                                 """))
                 .andExpect(status().isConflict());
 
-        // 5. Staff check-in
+        // 5. Staff check-in, add room service, and record extra payment
         mockMvc.perform(post("/api/v1/admin/bookings/" + bookingId + "/check-in")
                         .header("Authorization", "Bearer " + adminToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("checked_in"));
 
+        mockMvc.perform(post("/api/v1/admin/bookings/" + bookingId + "/services")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"serviceId\":1,\"quantity\":2}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.lineTotal").value(30000));
+
+        mockMvc.perform(post("/api/v1/admin/bookings/" + bookingId + "/payments")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\":500000,\"method\":\"Tien mat\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.amount").value(500000));
+
         // 6. Staff check-out (calculates 8% VAT & awards loyalty points)
+        // Room 2 nights (3,600,000) + Service (30,000) = 3,630,000 + 8% VAT (290,400) = 3,920,400
         mockMvc.perform(post("/api/v1/admin/bookings/" + bookingId + "/check-out")
                         .header("Authorization", "Bearer " + adminToken))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.grandTotal").value(3888000))
-                .andExpect(jsonPath("$.data.loyaltyPointsEarned").value(388));
+                .andExpect(jsonPath("$.data.grandTotal").value(3920400))
+                .andExpect(jsonPath("$.data.loyaltyPointsEarned").value(392));
     }
 
     private String extractToken(MvcResult result) throws Exception {

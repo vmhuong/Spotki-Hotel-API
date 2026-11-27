@@ -2,8 +2,6 @@ package com.spotkihotel.controller;
 
 import com.spotkihotel.dto.ApiResponse;
 import com.spotkihotel.dto.booking.BookingDtos.*;
-import com.spotkihotel.entity.BookingServiceItem;
-import com.spotkihotel.entity.Payment;
 import com.spotkihotel.entity.enums.BookingStatus;
 import com.spotkihotel.security.UserPrincipal;
 import com.spotkihotel.service.BookingService;
@@ -95,7 +93,7 @@ public class BookingController {
     @PostMapping("/admin/bookings/{id}/services")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'RECEPTION')")
     @Operation(summary = "Add room service to a booking")
-    public ResponseEntity<ApiResponse<BookingServiceItem>> addService(
+    public ResponseEntity<ApiResponse<BookingServiceItemResponse>> addService(
             @PathVariable Integer id,
             @Valid @RequestBody AddServiceRequest request,
             @AuthenticationPrincipal UserPrincipal principal
@@ -107,7 +105,7 @@ public class BookingController {
     @PostMapping("/admin/bookings/{id}/payments")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'RECEPTION', 'ACCOUNTING')")
     @Operation(summary = "Record a payment for a booking")
-    public ResponseEntity<ApiResponse<Payment>> recordPayment(
+    public ResponseEntity<ApiResponse<PaymentResponse>> recordPayment(
             @PathVariable Integer id,
             @Valid @RequestBody RecordPaymentRequest request,
             @AuthenticationPrincipal UserPrincipal principal

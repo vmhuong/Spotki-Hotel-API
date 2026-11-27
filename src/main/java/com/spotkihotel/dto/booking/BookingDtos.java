@@ -140,4 +140,35 @@ public class BookingDtos {
         private BigDecimal remainingBalance;
         private Integer loyaltyPointsEarned;
     }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class BookingServiceItemResponse {
+        private Integer id;
+        private Integer bookingId;
+        private Integer serviceId;
+        private String serviceName;
+        private Integer quantity;
+        private BigDecimal unitPrice;
+        private BigDecimal lineTotal;
+        private LocalDateTime createdAt;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class PaymentResponse {
+        private Integer id;
+        private Integer bookingId;
+        private String bookingCode;
+        private BigDecimal amount;
+        private String method;
+        private LocalDateTime paidAt;
+        private String payerName;
+        private String cashierName;
+        private String note;
+    }
 }

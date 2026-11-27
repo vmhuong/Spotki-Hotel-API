@@ -190,7 +190,7 @@ public class BookingService {
     }
 
     @Transactional
-    public BookingServiceItem addServiceToBooking(Integer bookingId, AddServiceRequest request, UserPrincipal principal) {
+    public BookingServiceItemResponse addServiceToBooking(Integer bookingId, AddServiceRequest request, UserPrincipal principal) {
         Booking booking = bookingRepository.findById(bookingId)
                 .orElseThrow(() -> new ResourceNotFoundException("Booking not found: " + bookingId));
         enforceHotelScope(principal, booking.getRoom());
@@ -202,16 +202,27 @@ public class BookingService {
         HotelService service = hotelServiceRepository.findById(request.getServiceId())
                 .orElseThrow(() -> new ResourceNotFoundException("Service not found: " + request.getServiceId()));
 
-        return bookingServiceItemRepository.save(BookingServiceItem.builder()
+        BookingServiceItem item = bookingServiceItemRepository.save(BookingServiceItem.builder()
                 .booking(booking)
                 .service(service)
                 .quantity(request.getQuantity())
                 .price(service.getPrice())
                 .build());
+
+        return BookingServiceItemResponse.builder()
+                .id(item.getId())
+                .bookingId(booking.getId())
+                .serviceId(service.getId())
+                .serviceName(service.getServiceName())
+                .quantity(item.getQuantity())
+                .unitPrice(item.getPrice())
+                .lineTotal(item.getPrice().multiply(BigDecimal.valueOf(item.getQuantity())))
+                .createdAt(item.getCreatedAt())
+                .build();
     }
 
     @Transactional
-    public Payment recordPayment(Integer bookingId, RecordPaymentRequest request, UserPrincipal principal) {
+    public PaymentResponse recordPayment(Integer bookingId, RecordPaymentRequest request, UserPrincipal principal) {
         Booking booking = bookingRepository.findById(bookingId)
                 .orElseThrow(() -> new ResourceNotFoundException("Booking not found: " + bookingId));
         enforceHotelScope(principal, booking.getRoom());
@@ -225,7 +236,18 @@ public class BookingService {
                 .adminId(principal.getId())
                 .note(request.getNote())
                 .build());
-        return payment;
+
+        return PaymentResponse.builder()
+                .id(payment.getId())
+                .bookingId(booking.getId())
+                .bookingCode(booking.getBookingCode())
+                .amount(payment.getAmount())
+                .method(payment.getMethod())
+                .paidAt(payment.getPaidAt())
+                .payerName(payment.getPayerName())
+                .cashierName(payment.getCashierName())
+                .note(payment.getNote())
+                .build();
     }
 
     @Transactional
@@ -386,7 +408,7 @@ public class BookingService {
         }
     }
 
-    private BookingResponse toBookingResponse(Booking booking) {
+    public BookingResponse toBookingResponse(Booking booking) {
         Room room = booking.getRoom();
         BigDecimal estimated = calculateRoomTotalWithSurcharge(booking, room);
         BigDecimal deposit = estimated.multiply(depositRate).setScale(0, RoundingMode.HALF_UP);

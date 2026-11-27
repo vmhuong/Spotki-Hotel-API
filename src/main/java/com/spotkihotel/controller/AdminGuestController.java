@@ -1,7 +1,9 @@
 package com.spotkihotel.controller;
 
 import com.spotkihotel.dto.ApiResponse;
+import com.spotkihotel.dto.booking.BookingDtos.BookingResponse;
 import com.spotkihotel.dto.guest.GuestDtos.GuestResponse;
+import com.spotkihotel.security.UserPrincipal;
 import com.spotkihotel.service.GuestService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -11,13 +13,16 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/admin/guests")
 @RequiredArgsConstructor
 @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'RECEPTION')")
-@Tag(name = "Guest Management", description = "Admin & Reception guest search and VIP management")
+@Tag(name = "Guest Management", description = "Admin & Reception guest search, booking history, and VIP management")
 public class AdminGuestController {
 
     private final GuestService guestService;
@@ -29,6 +34,15 @@ public class AdminGuestController {
             @PageableDefault(size = 15) Pageable pageable
     ) {
         return ResponseEntity.ok(ApiResponse.ok(guestService.searchGuests(keyword, pageable)));
+    }
+
+    @GetMapping("/{id}/bookings")
+    @Operation(summary = "Get booking history of a guest (scoped by branch for non-admin)")
+    public ResponseEntity<ApiResponse<List<BookingResponse>>> getGuestBookings(
+            @PathVariable Integer id,
+            @AuthenticationPrincipal UserPrincipal principal
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(guestService.getGuestBookings(id, principal)));
     }
 
     @PatchMapping("/{id}/vip")

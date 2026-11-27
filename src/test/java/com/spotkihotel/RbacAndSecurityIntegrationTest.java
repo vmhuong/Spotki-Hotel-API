@@ -145,7 +145,7 @@ class RbacAndSecurityIntegrationTest {
 
         mockMvc.perform(get("/api/v1/customers/me")
                         .header("Authorization", "Bearer " + newAccessToken))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
 
         // Original access token still works until logged out
         mockMvc.perform(get("/api/v1/customers/me")

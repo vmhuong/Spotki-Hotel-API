@@ -102,6 +102,7 @@ public class HotelAndRoomService {
     @Transactional(readOnly = true)
     public RoomResponse getRoomById(Integer roomId) {
         Room room = roomRepository.findById(roomId)
+                .filter(r -> Boolean.TRUE.equals(r.getIsActive()))
                 .orElseThrow(() -> new ResourceNotFoundException("Room not found: " + roomId));
         return toRoomResponse(room);
     }
