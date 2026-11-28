@@ -1,31 +1,34 @@
-# Spotki Hotel Management API (Spring Boot 3)
+# Spotki Hotel Management System (Fullstack PMS & Booking Portal)
 
 [![Spotki Hotel CI](https://github.com/vmhuong/Spotki-Hotel-API/actions/workflows/ci.yml/badge.svg)](https://github.com/vmhuong/Spotki-Hotel-API/actions/workflows/ci.yml)
 
-RESTful Backend API for multi-branch hotel management, room availability search, booking & 50% deposit workflow, check-in/check-out with 8% VAT invoicing, loyalty points, housekeeping operations, and role-based access control (RBAC).
+Full-stack multi-branch Hotel Management & PMS system featuring a React + TypeScript web application (`web/`) and a Spring Boot 3 REST API (`backend/`) with synchronized room availability, walk-in/booking management, POS billing, VietQR SePay webhook integration, loyalty points, housekeeping workflows, and branch-scoped RBAC.
 
 ## Tech Stack
 
-- **Language & Framework**: Java 21, Spring Boot 3.3.5
-- **Data & Caching**: Spring Data JPA, Hibernate, PostgreSQL 16, Flyway, Redis Cache & Token Store, Testcontainers (PostgreSQL), H2
-- **Security**: Spring Security 6, Stateless JWT + Refresh Token rotation (`jjwt`), Redis JWT logout blacklist, Redis Rate Limiting on `/api/v1/auth/**`, Security Audit Logs, BCrypt, method-level RBAC (`@PreAuthorize`), IDOR & branch-scope protection, CORS
-- **API Documentation**: SpringDoc OpenAPI 3 / Swagger UI
-- **Testing & CI**: JUnit 5, Mockito, Spring Boot Test, MockMvc, Testcontainers (`postgres:16-alpine`), GitHub Actions CI
-- **Containerization**: Docker, Docker Compose (PostgreSQL 16 + Redis 7 + Spring Boot API)
+- **Backend (`backend/`)**: Java 21, Spring Boot 3.3.5, Spring Data JPA, Hibernate, PostgreSQL 16, Flyway (`V1`–`V6`), Redis 7, Spring Security 6 (JWT + Refresh Token Rotation + Redis Blacklist + Rate Limiting), SpringDoc OpenAPI 3.
+- **Frontend (`web/`)**: React, TypeScript, Vite, Tailwind CSS.
+- **Testing & CI**: JUnit 5, Mockito, Spring Boot Test, MockMvc, Testcontainers (`postgres:16-alpine`), H2, GitHub Actions CI ([ci.yml](.github/workflows/ci.yml)).
+- **Containerization**: Docker & Docker Compose (`postgres`, `redis`, `api`, `web`).
 
-## Architecture Highlights
+## Repository Structure
 
 ```text
-src/main/java/com/spotkihotel/
-├── config/          # SecurityConfig (JWT + CORS), OpenApiConfig, CacheConfig, DataSeeder
-├── controller/      # REST controllers (/api/v1/...)
-├── dto/             # Request/Response DTOs with Jakarta Bean Validation
-├── entity/          # JPA entities & domain enums
-├── exception/       # GlobalExceptionHandler (@RestControllerAdvice)
-├── job/             # Scheduled background maintenance jobs
-├── repository/      # Spring Data JPA repositories, EntityGraphs & Pessimistic Locks
-├── security/        # JwtService, JwtAuthenticationFilter, TokenStoreService (Redis), UserPrincipal
-└── service/         # Transactional business logic & security logging
+SpotkiHotel/
+├── backend/                     # Spring Boot 3 API + Flyway migrations + JUnit/Testcontainers suite
+│   └── src/main/java/com/spotkihotel/
+│       ├── config/              # SecurityConfig, OpenApiConfig, CacheConfig, DataSeeder
+│       ├── controller/          # REST endpoints (/api/v1/...)
+│       ├── dto/                 # Request/Response DTOs with validation
+│       ├── entity/              # JPA entities & enums
+│       ├── exception/           # GlobalExceptionHandler (@RestControllerAdvice)
+│       ├── job/                 # Scheduled booking maintenance jobs
+│       ├── repository/          # Spring Data JPA repositories & PESSIMISTIC_WRITE locks
+│       ├── security/            # JwtService, JwtAuthenticationFilter, TokenStoreService, RateLimitFilter
+│       └── service/             # Business logic, VietQR/SePay gateway, audit logging
+├── web/                         # React + TypeScript + Vite SPA & PMS Admin workspace
+├── docker-compose.yml           # Full 4-container local/VPS stack
+└── .env.example                 # Environment variable template (copy to .env)
 ```
 
 ## Database ER Diagram
@@ -46,52 +49,82 @@ erDiagram
 
 ## Key Features
 
-- **Dual Authentication, Refresh Token, Rate Limit & Redis Blacklist**: Separate JWT login flows for customers (`ROLE_CUSTOMER`) and staff (`ROLE_ADMIN`, `ROLE_MANAGER`, `ROLE_RECEPTION`, `ROLE_ACCOUNTING`, `ROLE_HOUSEKEEPING`), refresh token rotation (`/api/v1/auth/refresh`), Redis-backed access token revocation on logout (`/api/v1/auth/logout`), and fixed-window Redis rate limiting (`429 Too Many Requests`) protecting `/api/v1/auth/**`.
-- **Security Audit Logs**: Admin endpoint (`GET /api/v1/admin/audit-logs`) to inspect login events, blocked rate-limit attempts, bookings, and scheduled cancellations.
-- **Branch Scope & IDOR Protection**: Non-admin staff are restricted to their assigned `hotelId` across rooms, bookings, staff, payments, and housekeeping; customers can only view/edit/review their own bookings and invoices.
-- **Room Search & Concurrency Control**: Date-range availability filtering excluding rooms with active `booked` or `checked_in` reservations, plus `PESSIMISTIC_WRITE` row locking during booking creation and customer edits to prevent double-booking race conditions.
-- **Booking & Invoicing Lifecycle**:
-  - Automatic 50% deposit calculation and payment recording on booking creation.
-  - Extra guest surcharge calculation based on room capacity.
-  - Customer self-service booking modification (limited to 1 edit while `booked`).
-  - Check-in -> Room service charges -> Check-out with 8% VAT invoice calculation, loyalty point awarding (`Bronze`/`Silver`/`Gold`/`Platinum`), and automatic housekeeping queue trigger.
-- **Scheduled Maintenance & Payment Webhook**: `@Scheduled` job to auto-cancel overdue bookings, plus sandbox payment gateway initiation and idempotent HMAC-SHA256 webhook callback.
+- **5-Role RBAC & Branch Isolation**:
+  - `ROLE_ADMIN`: Full chain management, catalog, staff, reports, security audit logs.
+  - `ROLE_MANAGER`: Branch operations (`Tổng quan`, `Đặt phòng`, `Phòng đang sử dụng`, `Dọn phòng`) and review moderation scoped to their managed branch (`hotelId`).
+  - `ROLE_RECEPTION`: Front desk bookings & active occupied rooms.
+  - `ROLE_ACCOUNTING`: Overview & payment transaction ledger.
+  - `ROLE_HOUSEKEEPING`: Read-only view of occupied rooms + housekeeping queue updates.
+- **Synchronized Front Desk & Booking Lifecycle**:
+  - Separate flows for advance bookings (`booked`) and walk-in guests (immediate `checked_in` or hold), plus pre-check-in booking edits (`PUT /api/v1/admin/bookings/{id}`).
+  - Real-time room schedule sync for nightly bookings and hourly stays with next-booking `12:00` turnover conflict warnings and `PESSIMISTIC_WRITE` row locking.
+- **POS Bill Payment & VietQR (SePay) Webhook**:
+  - Unified POS bill preview with room package details, check-in/out times, member tier/points, itemized service add/remove, and 8% VAT calculation.
+  - Supports Cash, Card/POS, Loyalty Point redemption (verified via phone or identity number/CCCD, auto-refunded if removed before checkout), and dynamic **VietQR** generation.
+  - Bank transfer transactions (`Chuyen khoan VietQR`) are locked against deletion in both UI and backend, and auto-updated via `POST /api/v1/payments/gateway/vietqr-webhook` (compatible with SePay `transferType: "in"` / `"out"`, idempotent by reference/gateway ID, protected via `VIETQR_WEBHOOK_API_KEY`).
 
 ## API Overview
 
 | Module | Key Endpoints | Access |
 | --- | --- | --- |
 | **Auth** | `POST /api/v1/auth/customer/register`, `.../login`, `.../admin/login`, `.../refresh`, `.../logout` | Public / Authenticated |
-| **Customer Profile** | `GET/PUT /api/v1/customers/me`, `PATCH /api/v1/customers/me/password` | `CUSTOMER` |
-| **Catalog & Housekeeping** | `GET /api/v1/hotels`, `/rooms`, `/services`; `POST/PUT/PATCH/DELETE /api/v1/admin/**` | Public / Staff |
-| **Bookings & Billing** | `POST /api/v1/bookings`, `GET /me`, `PUT /{id}/customer-edit`, `POST .../check-in`, `.../check-out`, `GET /{id}/invoice` | Public / Owner / Staff |
-| **Payment Gateway** | `POST /api/v1/payments/gateway/initiate`, `POST /api/v1/payments/gateway/callback` | Authenticated / HMAC Webhook |
-| **Staff, Guests & Reports** | `GET/POST/PATCH /api/v1/admin/staff`, `/guests`, `/guests/{id}/bookings`, `/payments`, `/reports/summary`, `/revenue`, `/top-rooms`, `/audit-logs` | `ADMIN` / `MANAGER` / `ACCOUNTING` |
+| **Customer Portal** | `GET/PUT /api/v1/customers/me`, `PATCH /api/v1/customers/me/password`, `GET /bookings/me` | `CUSTOMER` |
+| **Front Desk & Billing** | `POST /api/v1/bookings`, `POST /admin/bookings/walk-in`, `PUT /admin/bookings/{id}`, `POST .../check-in`, `.../check-out`, `GET/POST/DELETE .../services`, `.../payments`, `POST .../member` | Staff (Scoped) |
+| **Payment Gateway & VietQR** | `POST /api/v1/payments/gateway/initiate`, `GET .../status/{appTransId}`, `POST .../callback`, `POST .../vietqr-webhook` | Authenticated / HMAC / SePay API Key |
+| **Staff, Guests & Reports** | `GET /api/v1/admin/guests/lookup`, `GET/POST/PATCH /admin/staff`, `/admin/reports/summary`, `/admin/reports/revenue`, `/admin/payments`, `/admin/reviews`, `/admin/audit-logs` | Role & Branch Scoped |
 
 ## Getting Started
 
-### Option 1: Run with Docker Compose (Recommended)
+### Option 1: Docker Compose (Recommended for Local & VPS)
+
+1. Copy `.env.example` to `.env` and fill in your values (never commit `.env`):
 
 ```bash
-docker compose up --build
+cp .env.example .env
 ```
 
-- API Base URL (Docker): `http://localhost:8088` (configurable via `API_PORT`)
-- Swagger UI (Docker): `http://localhost:8088/swagger-ui.html`
+Key VietQR / production variables in `.env`:
+- `JWT_SECRET` & `DB_PASS` (change from demo defaults in production)
+- `VIETQR_BANK_ID` (e.g. `MB`, `VCB`, `TCB`)
+- `VIETQR_ACCOUNT_NO` & `VIETQR_ACCOUNT_NAME`
+- `VIETQR_WEBHOOK_API_KEY` (shared API key sent by SePay in `Authorization: Apikey <key>`)
 
-### Option 2: Run Locally with Maven Wrapper
-
-1. Ensure PostgreSQL 16 is running on `localhost:5432` and Redis 7 on `localhost:6379` (configured via `.env.example` or environment variables).
-2. Run tests (uses in-memory H2 in PostgreSQL mode + in-memory token/cache store, no external DB/Redis required):
+2. Build and start all 4 containers:
 
 ```bash
+docker compose up -d --build
+```
+
+- **Web Portal & Admin UI**: `http://localhost:5173`
+- **API Base URL**: `http://localhost:8088` (configurable via `API_PORT`)
+- **Swagger UI**: `http://localhost:8088/swagger-ui.html`
+
+### Connecting SePay VietQR Webhook
+
+1. Expose your API over HTTPS (domain + reverse proxy on VPS, or Cloudflare Tunnel for local testing).
+2. In SePay Dashboard -> **Tích hợp Webhooks** -> **+ Thêm Webhook**:
+   - **URL**: `https://<your-domain>/api/v1/payments/gateway/vietqr-webhook`
+   - **Condition**: Money in (`Tiền vào`)
+   - **Auth**: API Key matching `VIETQR_WEBHOOK_API_KEY` in `.env`
+   - **Content Type**: `application/json`
+
+### Option 2: Run Backend & Frontend Locally
+
+1. **Backend** (requires Java 21; tests run in-memory on H2 without external DB/Redis):
+
+```bash
+cd backend
 ./mvnw test
+./mvnw spring-boot:run
 ```
 
-3. Start the application:
+2. **Frontend** (requires Node 22):
 
 ```bash
-./mvnw spring-boot:run
+cd web
+npm ci
+npm run build
+npm run dev
 ```
 
 ## Sample Accounts (Seeded Automatically)
