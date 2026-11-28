@@ -41,7 +41,12 @@ services:
       DB_PASS: postgres
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      JWT_SECRET: SpotkiHotelSuperSecretKeyForJwtSigning2026MustBeAtLeast32BytesLong!
+      JWT_SECRET: ${JWT_SECRET:-SpotkiHotelSuperSecretKeyForJwtSigning2026MustBeAtLeast32BytesLong!}
+      VIETQR_BANK_ID: ${VIETQR_BANK_ID:-MB}
+      VIETQR_ACCOUNT_NO: ${VIETQR_ACCOUNT_NO:-0389833822}
+      VIETQR_ACCOUNT_NAME: ${VIETQR_ACCOUNT_NAME:-SPOTKI HOTEL}
+      VIETQR_TEMPLATE: ${VIETQR_TEMPLATE:-compact2}
+      VIETQR_WEBHOOK_API_KEY: ${VIETQR_WEBHOOK_API_KEY:-}
     ports:
       - "${API_PORT:-8088}:8080"
 

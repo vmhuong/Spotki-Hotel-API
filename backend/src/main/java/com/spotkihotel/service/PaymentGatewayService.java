@@ -175,6 +175,15 @@ public class PaymentGatewayService {
             String webhookSecretHeader
     ) {
         verifyWebhookApiKeyIfConfigured(authHeader, webhookSecretHeader);
+
+        if ("out".equalsIgnoreCase(request.getTransferType())) {
+            return GatewayCallbackResponse.builder()
+                    .appTransId(request.getReferenceCode())
+                    .status("ignored_outgoing")
+                    .idempotentReplay(false)
+                    .build();
+        }
+
         BigDecimal paidAmount = request.getTransferAmount() != null ? request.getTransferAmount() : request.getAmount();
         if (paidAmount == null || paidAmount.compareTo(BigDecimal.ZERO) <= 0) {
             throw new BusinessException("Invalid webhook transfer amount.");
@@ -204,8 +213,19 @@ public class PaymentGatewayService {
         }
 
         String refId = request.getReferenceCode() != null && !request.getReferenceCode().isBlank()
-                ? request.getReferenceCode()
-                : (request.getId() != null ? request.getId() : "WEBHOOK-" + System.currentTimeMillis());
+                ? request.getReferenceCode().trim()
+                : (request.getId() != null && !request.getId().isBlank() ? request.getId().trim() : "WEBHOOK-" + System.currentTimeMillis());
+
+        PaymentGatewayTransaction existingByRef = gatewayRepository.findFirstByGatewayTransId(refId).orElse(null);
+        if (existingByRef != null && "paid".equalsIgnoreCase(existingByRef.getStatus())) {
+            return GatewayCallbackResponse.builder()
+                    .appTransId(existingByRef.getAppTransId())
+                    .status("paid")
+                    .idempotentReplay(true)
+                    .paymentId(existingByRef.getPayment() != null ? existingByRef.getPayment().getId() : null)
+                    .paidAt(existingByRef.getPaidAt())
+                    .build();
+        }
 
         if (tx != null) {
             if ("paid".equalsIgnoreCase(tx.getStatus())) {
@@ -242,7 +262,12 @@ public class PaymentGatewayService {
         String bookingCode = request.getBookingCode();
         if (bookingCode == null || bookingCode.isBlank()) {
             Matcher m = Pattern.compile("(BK-[A-Z0-9]+)").matcher(textBlob);
-            if (m.find()) bookingCode = m.group(1);
+            if (m.find()) {
+                bookingCode = m.group(1);
+            } else {
+                Matcher compactBk = Pattern.compile("BK([A-Z0-9]{6,12})").matcher(textBlob.replaceAll("[^A-Z0-9]", ""));
+                if (compactBk.find()) bookingCode = "BK-" + compactBk.group(1);
+            }
         }
         if (bookingCode == null || bookingCode.isBlank()) {
             throw new ResourceNotFoundException("No matching pending VietQR transaction or booking code found in webhook payload.");

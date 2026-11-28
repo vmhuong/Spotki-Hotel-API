@@ -59,6 +59,9 @@ public class PaymentGatewayDtos {
         private BigDecimal amount;
         private String referenceCode;
         private String id;
+        private String transferType;
+        private String gateway;
+        private String accountNumber;
     }
 
     @Data
