@@ -1,0 +1,127 @@
+@import "tailwindcss";
+
+:root {
+  --bg-canvas: #f7f4ef;
+  --bg-surface: #ffffff;
+  --bg-muted: #f1ece3;
+  --bg-obsidian: #141312;
+  --ink-primary: #181615;
+  --ink-secondary: #5e5852;
+  --ink-muted: #8b847c;
+  --border-hairline: #e6e0d6;
+  --accent-terracotta: #a63429;
+  --accent-terracotta-hover: #8a281e;
+  --accent-brass: #b8925a;
+}
+
+@layer base {
+  body {
+    margin: 0;
+    background-color: var(--bg-canvas);
+    color: var(--ink-primary);
+    font-family: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, .font-display {
+    font-family: "Playfair Display", Georgia, serif;
+    letter-spacing: -0.015em;
+  }
+}
+
+.font-display {
+  font-family: "Playfair Display", Georgia, serif;
+}
+
+.font-mono-num {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.btn-primary {
+  background-color: var(--accent-terracotta);
+  color: #ffffff;
+  font-weight: 600;
+  transition: background-color 0.18s ease, transform 0.12s ease, box-shadow 0.18s ease;
+}
+.btn-primary:hover {
+  background-color: var(--accent-terracotta-hover);
+}
+.btn-primary:active {
+  transform: translateY(0.5px);
+}
+
+.btn-dark {
+  background-color: var(--ink-primary);
+  color: #ffffff;
+  font-weight: 600;
+  transition: background-color 0.18s ease;
+}
+.btn-dark:hover {
+  background-color: #2c2825;
+}
+
+.card-editorial {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-hairline);
+}
+
+@keyframes toastSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-toast-in {
+  animation: toastSlideIn 0.18s ease-out forwards;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .reveal-hidden {
+    opacity: 0;
+    transform: translateY(22px);
+  }
+  .reveal-visible {
+    opacity: 1;
+    transform: translateY(0);
+    transition: opacity 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+      transform 0.65s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}
+
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+  #printable-invoice,
+  #printable-invoice * {
+    visibility: visible !important;
+  }
+  #printable-invoice {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: none !important;
+    overflow: visible !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    background: #ffffff !important;
+    padding: 16px !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+}

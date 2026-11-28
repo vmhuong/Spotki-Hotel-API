@@ -23,7 +23,7 @@ services:
       - "6379:6379"
 
   api:
-    build: .
+    build: ./backend
     container_name: spotki-hotel-api
     depends_on:
       postgres:
@@ -41,6 +41,17 @@ services:
       JWT_SECRET: SpotkiHotelSuperSecretKeyForJwtSigning2026MustBeAtLeast32BytesLong!
     ports:
       - "${API_PORT:-8088}:8080"
+
+  web:
+    build:
+      context: ./web
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8088}
+    container_name: spotki-hotel-web
+    depends_on:
+      - api
+    ports:
+      - "${WEB_PORT:-5173}:80"
 
 volumes:
   spotki_postgres_data:

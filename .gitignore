@@ -12,6 +12,11 @@ target/
 ### VS Code ###
 .vscode/
 
+### Frontend ###
+node_modules/
+dist/
+.vite/
+
 ### Environment ###
 .env
 *.log
