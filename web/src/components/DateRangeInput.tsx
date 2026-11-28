@@ -3,6 +3,11 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 export interface BookedRange {
   checkIn: string;
   checkOut: string;
+  bookingCode?: string;
+  status?: string;
+  pricingMode?: string;
+  checkInAt?: string;
+  expectedCheckOutAt?: string;
 }
 
 interface DateRangeInputProps {

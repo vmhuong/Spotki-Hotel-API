@@ -7,14 +7,12 @@ import type {
   Guest,
   Hotel,
   HotelServiceItem,
-  InvoiceSummary,
   PageResponse,
   Room,
 } from '../../types';
 import { FALLBACK_ROOM_IMG, formatVnd } from '../../utils/format';
-import { InvoiceModal } from '../InvoiceModal';
-
-const VND_PER_POINT = 1000;
+import { AdminHeaderBar } from './AdminHeaderBar';
+import { PaymentBillModal } from './PaymentBillModal';
 
 export const LiveRoomsTab: React.FC<{ role: string }> = ({ role }) => {
   const toast = useToast();
@@ -30,23 +28,14 @@ export const LiveRoomsTab: React.FC<{ role: string }> = ({ role }) => {
   const [loading, setLoading] = useState(true);
 
   const [guestModal, setGuestModal] = useState<{ booking: Booking; guest?: Guest } | null>(null);
-  const [invoice, setInvoice] = useState<InvoiceSummary | null>(null);
-
-  // Unified Payment & Checkout Modal State
-  const [checkoutModal, setCheckoutModal] = useState<{ booking: Booking; guest?: Guest } | null>(null);
-  const [checkoutInvoice, setCheckoutInvoice] = useState<InvoiceSummary | null>(null);
-  const [selectedServiceId, setSelectedServiceId] = useState<number>(1);
-  const [quantity, setQuantity] = useState<number>(1);
-  const [payAmount, setPayAmount] = useState<number>(0);
-  const [payMethod, setPayMethod] = useState<string>('Tien mat');
-  const [processing, setProcessing] = useState(false);
+  const [paymentBookingId, setPaymentBookingId] = useState<number | null>(null);
 
   const loadLiveRooms = async () => {
     try {
       const [bRes, rRes, hRes, sRes, gRes] = await Promise.all([
         api.get<ApiResponse<PageResponse<Booking>>>('/admin/bookings?status=checked_in&size=100'),
         api.get<ApiResponse<PageResponse<Room>>>('/rooms?size=100'),
-        api.get<ApiResponse<Hotel[]>>('/admin/hotels'),
+        api.get<ApiResponse<Hotel[]>>('/hotels'),
         api.get<ApiResponse<HotelServiceItem[]>>('/services'),
         isHousekeeping
           ? Promise.resolve(null)
@@ -56,11 +45,7 @@ export const LiveRoomsTab: React.FC<{ role: string }> = ({ role }) => {
       setBookings(bRes.data.data.content || []);
       setRooms(rRes.data.data.content || []);
       setHotels(hRes.data.data || []);
-      const activeServices = sRes.data.data || [];
-      setServices(activeServices);
-      if (activeServices.length > 0) {
-        setSelectedServiceId((prev) => prev || activeServices[0].id);
-      }
+      setServices(sRes.data.data || []);
       if (gRes?.data?.data?.content) {
         setGuests(gRes.data.data.content);
       }
@@ -103,141 +88,42 @@ export const LiveRoomsTab: React.FC<{ role: string }> = ({ role }) => {
     });
   }, [bookings, selectedHotelId, keyword]);
 
-  const openPaymentModal = async (booking: Booking, guest?: Guest) => {
-    setCheckoutModal({ booking, guest });
-    setPayMethod('Tien mat');
-    setQuantity(1);
-    try {
-      const res = await api.get<ApiResponse<InvoiceSummary>>(`/bookings/${booking.id}/invoice`);
-      const inv = res.data.data;
-      setCheckoutInvoice(inv);
-      setPayAmount(Math.max(0, inv.remainingBalance));
-    } catch (err) {
-      toast.error(getErrorMessage(err));
-    }
-  };
-
-  const refreshCheckoutInvoice = async (bookingId: number) => {
-    const res = await api.get<ApiResponse<InvoiceSummary>>(`/bookings/${bookingId}/invoice`);
-    const inv = res.data.data;
-    setCheckoutInvoice(inv);
-    setPayAmount(Math.max(0, inv.remainingBalance));
-  };
-
-  const handleAddServiceInModal = async () => {
-    if (!checkoutModal) return;
-    setProcessing(true);
-    try {
-      await api.post(`/admin/bookings/${checkoutModal.booking.id}/services`, {
-        serviceId: selectedServiceId,
-        quantity,
-      });
-      await refreshCheckoutInvoice(checkoutModal.booking.id);
-      toast.success('Đã thêm dịch vụ vào hóa đơn.');
-      loadLiveRooms();
-    } catch (err) {
-      toast.error(getErrorMessage(err));
-    } finally {
-      setProcessing(false);
-    }
-  };
-
-  const handleRecordPaymentInModal = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!checkoutModal || payAmount <= 0) return;
-
-    const guestPoints = checkoutModal.guest?.loyaltyPoints ?? 0;
-    const maxRedeemVnd = guestPoints * VND_PER_POINT;
-    if (payMethod === 'Diem thuong' && payAmount > maxRedeemVnd) {
-      toast.error(`Khách chỉ có ${guestPoints} điểm (tối đa ${formatVnd(maxRedeemVnd)}).`);
-      return;
-    }
-
-    setProcessing(true);
-    try {
-      const pointsUsed = payMethod === 'Diem thuong' ? Math.ceil(payAmount / VND_PER_POINT) : 0;
-      await api.post(`/admin/bookings/${checkoutModal.booking.id}/payments`, {
-        amount: payAmount,
-        method: payMethod,
-        note: payMethod === 'Diem thuong' ? `Quy doi ${pointsUsed} diem` : undefined,
-      });
-      await refreshCheckoutInvoice(checkoutModal.booking.id);
-      toast.success(
-        payMethod === 'Diem thuong'
-          ? `Đã thanh toán ${formatVnd(payAmount)} bằng ${pointsUsed} điểm thưởng.`
-          : `Đã ghi nhận thanh toán ${formatVnd(payAmount)}.`
-      );
-      loadLiveRooms();
-    } catch (err) {
-      toast.error(getErrorMessage(err));
-    } finally {
-      setProcessing(false);
-    }
-  };
-
-  const handleFinishCheckout = async () => {
-    if (!checkoutModal) return;
-    setProcessing(true);
-    try {
-      const res = await api.post<ApiResponse<InvoiceSummary>>(
-        `/admin/bookings/${checkoutModal.booking.id}/check-out`
-      );
-      toast.success(`Đã trả phòng ${checkoutModal.booking.roomNumber} và xuất hóa đơn.`);
-      setCheckoutModal(null);
-      setCheckoutInvoice(null);
-      if (res.data.data) setInvoice(res.data.data);
-      loadLiveRooms();
-    } catch (err) {
-      toast.error(getErrorMessage(err));
-    } finally {
-      setProcessing(false);
-    }
-  };
-
-  const guestPoints = checkoutModal?.guest?.loyaltyPoints ?? 0;
-  const maxPointsVnd = guestPoints * VND_PER_POINT;
-
   return (
-    <div className="space-y-6 tabular-nums">
-      {/* Control & Filter Bar */}
-      <div className="card-editorial p-4 rounded-xl flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2.5">
-          <select
-            value={selectedHotelId}
-            onChange={(e) => setSelectedHotelId(e.target.value)}
-            className="h-9 rounded-lg border border-[#D9D1C5] px-3 text-xs font-semibold bg-white text-[#181615] focus:outline-none focus:border-[#181615]"
-          >
-            <option value="">Tất cả cơ sở ({hotels.length})</option>
-            {hotels.map((h) => (
-              <option key={h.id} value={h.id}>
-                {h.hotelName}
-              </option>
-            ))}
-          </select>
+    <div className="space-y-5 tabular-nums">
+      <AdminHeaderBar>
+        <select
+          value={selectedHotelId}
+          onChange={(e) => setSelectedHotelId(e.target.value)}
+          className="h-9 rounded-lg border border-[#D9D1C5] px-3 text-xs font-semibold bg-white text-[#181615] focus:outline-none focus:border-[#181615]"
+        >
+          <option value="">Tất cả cơ sở ({hotels.length})</option>
+          {hotels.map((h) => (
+            <option key={h.id} value={h.id}>
+              {h.hotelName}
+            </option>
+          ))}
+        </select>
 
-          <input
-            type="text"
-            placeholder="Lọc số phòng, tên khách, mã BK-..."
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-            className="h-9 rounded-lg border border-[#D9D1C5] px-3 text-xs w-60 focus:outline-none focus:border-[#181615]"
-          />
-        </div>
+        <input
+          type="text"
+          placeholder="Lọc số phòng, tên khách, mã BK-..."
+          value={keyword}
+          onChange={(e) => setKeyword(e.target.value)}
+          className="h-9 rounded-lg border border-[#D9D1C5] bg-white px-3 text-xs w-52 focus:outline-none focus:border-[#181615]"
+        />
 
-        <div className="flex items-center gap-2.5">
-          <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#EDF5F0] border border-[#CBE3D5] text-[#1E5F3E] text-[11px] font-semibold">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
-            Tự cập nhật 30s
-          </span>
-          <button
-            type="button"
-            onClick={loadLiveRooms}
-            className="px-4 h-9 rounded-lg border border-[#D9D1C5] bg-white hover:bg-[#F7F4EF] text-xs font-semibold text-[#181615] cursor-pointer"
-          >
-            Làm mới
-          </button>
-        </div>
-      </div>
+        <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#EDF5F0] border border-[#CBE3D5] text-[#1E5F3E] text-[11px] font-semibold">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+          30s
+        </span>
+        <button
+          type="button"
+          onClick={loadLiveRooms}
+          className="px-3.5 h-9 rounded-lg border border-[#D9D1C5] bg-white hover:bg-[#F7F4EF] text-xs font-semibold text-[#181615] cursor-pointer"
+        >
+          Làm mới
+        </button>
+      </AdminHeaderBar>
 
       {/* Live Occupied Rooms Grid */}
       {loading ? (
@@ -298,18 +184,20 @@ export const LiveRoomsTab: React.FC<{ role: string }> = ({ role }) => {
                         {b.checkIn} → {b.checkOut}
                       </span>
                     </div>
-                    <div className="pt-0.5">
-                      <div className="flex justify-between mb-1">
-                        <span className="text-[#8B847C]">Đã thu</span>
-                        <span className="font-mono-num font-bold text-emerald-700">
-                          {formatVnd(b.totalPaid)}{' '}
-                          <span className="text-[#8B847C] font-normal">/ {formatVnd(b.estimatedRoomTotal)}</span>
-                        </span>
+                    {!isHousekeeping && (
+                      <div className="pt-0.5">
+                        <div className="flex justify-between mb-1">
+                          <span className="text-[#8B847C]">Đã thu</span>
+                          <span className="font-mono-num font-bold text-emerald-700">
+                            {formatVnd(b.totalPaid)}{' '}
+                            <span className="text-[#8B847C] font-normal">/ {formatVnd(b.estimatedRoomTotal)}</span>
+                          </span>
+                        </div>
+                        <div className="h-1 rounded-full bg-[#EFECE6] overflow-hidden">
+                          <div className="h-full bg-emerald-700 rounded-full" style={{ width: `${paidPct}%` }} />
+                        </div>
                       </div>
-                      <div className="h-1 rounded-full bg-[#EFECE6] overflow-hidden">
-                        <div className="h-full bg-emerald-700 rounded-full" style={{ width: `${paidPct}%` }} />
-                      </div>
-                    </div>
+                    )}
                   </div>
 
                   {!isHousekeeping ? (
@@ -323,7 +211,7 @@ export const LiveRoomsTab: React.FC<{ role: string }> = ({ role }) => {
                       </button>
                       <button
                         type="button"
-                        onClick={() => openPaymentModal(b, guest)}
+                        onClick={() => setPaymentBookingId(b.id)}
                         className="btn-primary py-1.5 rounded-lg text-[11px] cursor-pointer"
                       >
                         Thanh toán
@@ -397,7 +285,9 @@ export const LiveRoomsTab: React.FC<{ role: string }> = ({ role }) => {
               </div>
               <div className="flex justify-between py-1.5 border-b border-[#F1ECE3]">
                 <span className="text-[#8B847C]">Hạng thành viên</span>
-                <strong className="text-[#946421]">{guestModal.guest?.isVip ? 'VIP' : 'Thành viên'}</strong>
+                <strong className="text-[#946421]">
+                  {guestModal.guest?.membershipTier || (guestModal.guest?.isVip ? 'VIP' : 'Thành viên')}
+                </strong>
               </div>
               <div className="flex justify-between py-1.5">
                 <span className="text-[#8B847C]">Điểm tích lũy</span>
@@ -410,189 +300,12 @@ export const LiveRoomsTab: React.FC<{ role: string }> = ({ role }) => {
         </div>
       )}
 
-      {/* Unified Payment, Services, Points & Checkout Modal */}
-      {checkoutModal && (
-        <div
-          className="fixed inset-0 z-50 bg-[#141312]/60 backdrop-blur-[2px] flex items-center justify-center p-4"
-          onClick={() => setCheckoutModal(null)}
-        >
-          <div
-            className="bg-white rounded-xl max-w-2xl w-full max-h-[92vh] overflow-y-auto border border-[#E6E0D6] shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="px-6 py-4 border-b border-[#E6E0D6] bg-[#F7F4EF] flex items-center justify-between">
-              <div>
-                <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#B8925A]">
-                  {checkoutModal.booking.hotelName} · {checkoutModal.booking.bookingCode}
-                </div>
-                <h3 className="font-display text-xl font-semibold text-[#181615]">
-                  Thanh toán Phòng {checkoutModal.booking.roomNumber}
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setCheckoutModal(null)}
-                className="px-3.5 py-1.5 rounded-lg border border-[#D9D1C5] bg-white text-xs font-semibold cursor-pointer"
-              >
-                Đóng
-              </button>
-            </div>
-
-            <div className="p-6 space-y-5 text-sm">
-              {/* Add Service Section */}
-              <div className="p-4 rounded-xl bg-[#F7F4EF] border border-[#E6E0D6] space-y-2.5">
-                <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#5E5852]">
-                  Chọn thêm dịch vụ phát sinh
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-[1fr_90px_auto] gap-2">
-                  <select
-                    value={selectedServiceId}
-                    onChange={(e) => setSelectedServiceId(Number(e.target.value))}
-                    className="h-9 rounded-lg border border-[#D9D1C5] px-3 text-xs bg-white"
-                  >
-                    {services.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.serviceName} ({formatVnd(s.price)} / {s.unit})
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    type="number"
-                    min={1}
-                    value={quantity}
-                    onChange={(e) => setQuantity(Math.max(1, Number(e.target.value)))}
-                    className="h-9 rounded-lg border border-[#D9D1C5] px-3 text-xs font-mono-num bg-white"
-                  />
-                  <button
-                    type="button"
-                    disabled={processing}
-                    onClick={handleAddServiceInModal}
-                    className="btn-dark px-4 h-9 rounded-lg text-xs cursor-pointer disabled:opacity-50"
-                  >
-                    + Thêm dịch vụ
-                  </button>
-                </div>
-              </div>
-
-              {/* Live Invoice Summary */}
-              {checkoutInvoice && (
-                <div className="border border-[#E6E0D6] rounded-xl p-4 space-y-2 text-xs tabular-nums">
-                  <div className="flex justify-between text-[#5E5852]">
-                    <span>Tiền phòng &amp; phụ thu</span>
-                    <span className="font-mono-num font-semibold text-[#181615]">
-                      {formatVnd(checkoutInvoice.roomCharge + checkoutInvoice.extraGuestSurcharge)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-[#5E5852]">
-                    <span>Dịch vụ ({checkoutInvoice.services?.length || 0} mục)</span>
-                    <span className="font-mono-num font-semibold text-[#181615]">
-                      {formatVnd(checkoutInvoice.serviceCharge)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-[#5E5852]">
-                    <span>Thuế GTGT (8%)</span>
-                    <span className="font-mono-num font-semibold text-[#181615]">
-                      {formatVnd(checkoutInvoice.vatAmount)}
-                    </span>
-                  </div>
-                  <div className="border-t border-[#E6E0D6] pt-2 flex justify-between font-bold text-sm text-[#181615]">
-                    <span>Tổng cộng</span>
-                    <span className="font-mono-num">{formatVnd(checkoutInvoice.grandTotal)}</span>
-                  </div>
-                  <div className="flex justify-between text-emerald-700 font-semibold">
-                    <span>Đã thanh toán</span>
-                    <span className="font-mono-num">{formatVnd(checkoutInvoice.totalPaid)}</span>
-                  </div>
-                  <div className="flex justify-between text-[#A63429] font-bold text-sm">
-                    <span>Còn lại phải thu</span>
-                    <span className="font-mono-num">{formatVnd(checkoutInvoice.remainingBalance)}</span>
-                  </div>
-                </div>
-              )}
-
-              {/* Payment Form (supports Points) */}
-              <form onSubmit={handleRecordPaymentInModal} className="space-y-3 border-t border-[#E6E0D6] pt-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#5E5852]">
-                    Ghi nhận thanh toán
-                  </div>
-                  <div className="text-xs text-[#946421] font-semibold">
-                    Điểm khách hiện có: <span className="font-mono-num">{guestPoints} điểm</span> (≈{' '}
-                    <span className="font-mono-num">{formatVnd(maxPointsVnd)}</span>)
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                  <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-[0.12em] text-[#8B847C] mb-1">
-                      Phương thức
-                    </label>
-                    <select
-                      value={payMethod}
-                      onChange={(e) => {
-                        const m = e.target.value;
-                        setPayMethod(m);
-                        if (m === 'Diem thuong' && checkoutInvoice) {
-                          setPayAmount(Math.min(checkoutInvoice.remainingBalance, maxPointsVnd));
-                        }
-                      }}
-                      className="w-full h-10 rounded-lg border border-[#D9D1C5] px-3 text-xs bg-white"
-                    >
-                      <option value="Tien mat">Tiền mặt</option>
-                      <option value="Chuyen khoan">Chuyển khoản / VietQR</option>
-                      <option value="The tin dung">Thẻ tín dụng</option>
-                      <option value="Diem thuong">Thanh toán bằng điểm</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-[0.12em] text-[#8B847C] mb-1">
-                      Số tiền (VND)
-                    </label>
-                    <input
-                      type="number"
-                      min={1000}
-                      step={1000}
-                      value={payAmount}
-                      onChange={(e) => setPayAmount(Number(e.target.value))}
-                      className="w-full h-10 rounded-lg border border-[#D9D1C5] px-3 text-xs font-mono-num"
-                    />
-                  </div>
-                  <div className="flex items-end">
-                    <button
-                      type="submit"
-                      disabled={processing || payAmount <= 0}
-                      className="w-full h-10 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold cursor-pointer disabled:opacity-50"
-                    >
-                      Thu tiền
-                    </button>
-                  </div>
-                </div>
-              </form>
-
-              {/* Footer Actions */}
-              <div className="pt-4 border-t border-[#E6E0D6] flex flex-wrap items-center justify-between gap-2">
-                <button
-                  type="button"
-                  onClick={() => checkoutInvoice && setInvoice(checkoutInvoice)}
-                  className="px-4 py-2.5 rounded-lg border border-[#D9D1C5] bg-white hover:bg-[#F7F4EF] text-xs font-semibold text-[#181615] cursor-pointer"
-                >
-                  Xem &amp; In hóa đơn
-                </button>
-                <button
-                  type="button"
-                  disabled={processing}
-                  onClick={handleFinishCheckout}
-                  className="btn-primary px-6 py-2.5 rounded-lg text-xs cursor-pointer disabled:opacity-50"
-                >
-                  Hoàn tất Check-out &amp; Xuất Bill
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <InvoiceModal invoice={invoice} onClose={() => setInvoice(null)} />
+      <PaymentBillModal
+        bookingId={paymentBookingId}
+        services={services}
+        onClose={() => setPaymentBookingId(null)}
+        onChanged={loadLiveRooms}
+      />
     </div>
   );
 };

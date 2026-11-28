@@ -75,6 +75,7 @@ public class RoomDtos {
         private String packageName;
         private String imageUrl;
         private String galleryUrls;
+        private RoomStatus status;
     }
 
     @Data

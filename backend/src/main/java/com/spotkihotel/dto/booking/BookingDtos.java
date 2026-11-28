@@ -54,6 +54,87 @@ public class BookingDtos {
     @Data
     @NoArgsConstructor
     @AllArgsConstructor
+    public static class WalkInBookingRequest {
+        @NotNull(message = "Room ID is required")
+        private Integer roomId;
+
+        @NotNull(message = "Check-in date is required")
+        private LocalDate checkIn;
+
+        @NotNull(message = "Check-out date is required")
+        private LocalDate checkOut;
+
+        private PricingMode pricingMode = PricingMode.night;
+
+        @Min(value = 1, message = "Duration hours must be at least 1")
+        private Integer durationHours = 2;
+
+        private LocalDateTime checkInAt;
+
+        @Min(value = 1, message = "At least 1 adult is required")
+        private Integer adults = 1;
+
+        @Min(value = 0, message = "Children cannot be negative")
+        private Integer children = 0;
+
+        @NotBlank(message = "Guest full name is required")
+        private String contactName;
+
+        @NotBlank(message = "Guest phone is required")
+        private String contactPhone;
+
+        @Email(message = "Invalid contact email")
+        private String contactEmail;
+
+        private String identityNo;
+        private String address;
+        private String paymentMethod = "Tien mat";
+
+        @DecimalMin(value = "0.0", message = "Deposit cannot be negative")
+        private BigDecimal depositAmount;
+
+        private boolean checkInNow = true;
+        private String note;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class AdminUpdateBookingRequest {
+        @NotNull(message = "Room ID is required")
+        private Integer roomId;
+
+        @NotNull(message = "Check-in date is required")
+        private LocalDate checkIn;
+
+        @NotNull(message = "Check-out date is required")
+        private LocalDate checkOut;
+
+        private PricingMode pricingMode = PricingMode.night;
+
+        @Min(value = 1, message = "Duration hours must be at least 1")
+        private Integer durationHours = 2;
+
+        private LocalDateTime checkInAt;
+
+        @Min(value = 1, message = "At least 1 adult is required")
+        private Integer adults = 1;
+
+        @Min(value = 0, message = "Children cannot be negative")
+        private Integer children = 0;
+
+        @NotBlank(message = "Contact name is required")
+        private String contactName;
+
+        @NotBlank(message = "Contact phone is required")
+        private String contactPhone;
+
+        private String note;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
     public static class CustomerEditBookingRequest {
         @NotNull(message = "Check-in date is required")
         @FutureOrPresent(message = "Check-in date must be today or in the future")
@@ -95,6 +176,16 @@ public class BookingDtos {
 
         private String payerName;
         private String note;
+        private Integer memberGuestId;
+        private String verifiedIdentifier;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class AttachMemberRequest {
+        private Integer guestId;
+        private String identifier;
     }
 
     @Data
@@ -111,8 +202,13 @@ public class BookingDtos {
         private String hotelName;
         private Integer guestId;
         private String guestName;
+        private String contactName;
+        private String contactPhone;
+        private String note;
         private LocalDate checkIn;
         private LocalDate checkOut;
+        private LocalDateTime checkInAt;
+        private LocalDateTime expectedCheckOutAt;
         private PricingMode pricingMode;
         private Integer adults;
         private Integer children;
@@ -131,6 +227,29 @@ public class BookingDtos {
     public static class InvoiceSummaryResponse {
         private Integer bookingId;
         private String bookingCode;
+        private BookingStatus bookingStatus;
+        private String hotelName;
+        private String hotelAddress;
+        private String hotelPhone;
+        private String roomNumber;
+        private String roomType;
+        private String packageName;
+        private PricingMode pricingMode;
+        private Integer adults;
+        private Integer children;
+        private LocalDate checkIn;
+        private LocalDate checkOut;
+        private LocalDateTime checkInAt;
+        private LocalDateTime expectedCheckOutAt;
+        private LocalDateTime checkedOutAt;
+        private Integer guestId;
+        private String guestName;
+        private String guestPhone;
+        private String guestEmail;
+        private String guestIdentityNo;
+        private Boolean guestIsVip;
+        private Integer guestLoyaltyPoints;
+        private String guestMembershipTier;
         private BigDecimal roomCharge;
         private BigDecimal extraGuestSurcharge;
         private BigDecimal serviceCharge;
@@ -173,5 +292,6 @@ public class BookingDtos {
         private String payerName;
         private String cashierName;
         private String note;
+        private boolean bankTransfer;
     }
 }

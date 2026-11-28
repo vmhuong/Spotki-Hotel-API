@@ -18,11 +18,14 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.text.Normalizer;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
@@ -34,6 +37,7 @@ public class BookingService {
     private final HotelServiceRepository hotelServiceRepository;
     private final BookingServiceItemRepository bookingServiceItemRepository;
     private final PaymentRepository paymentRepository;
+    private final PaymentGatewayTransactionRepository paymentGatewayTransactionRepository;
     private final SecurityLogService securityLogService;
 
     @Value("${app.hotel.vat-rate:0.08}")
@@ -99,6 +103,216 @@ public class BookingService {
                 "Created booking " + bookingCode + " for room " + room.getRoomNumber());
 
         return toBookingResponse(booking);
+    }
+
+    @Transactional
+    public BookingResponse createWalkInBooking(WalkInBookingRequest request, UserPrincipal principal) {
+        PricingMode pricingMode = request.getPricingMode() != null ? request.getPricingMode() : PricingMode.night;
+
+        Room room = roomRepository.findByIdForUpdate(request.getRoomId())
+                .orElseThrow(() -> new ResourceNotFoundException("Room not found: " + request.getRoomId()));
+
+        enforceHotelScope(principal, room);
+
+        if (!Boolean.TRUE.equals(room.getIsActive()) || room.getStatus() == RoomStatus.maintenance) {
+            throw new BusinessException("Room is currently unavailable for booking.");
+        }
+        if (request.isCheckInNow() && room.getStatus() == RoomStatus.occupied) {
+            throw new ConflictException("Room is currently occupied and cannot check in immediately.");
+        }
+
+        LocalDate checkInDate = request.getCheckIn();
+        LocalDate checkOutDate = request.getCheckOut();
+        LocalDateTime startAt = request.getCheckInAt();
+        LocalDateTime expectedOutAt = null;
+
+        if (pricingMode == PricingMode.hour) {
+            int hours = request.getDurationHours() != null && request.getDurationHours() > 0
+                    ? request.getDurationHours() : 2;
+            if (startAt == null) {
+                startAt = checkInDate.equals(LocalDate.now())
+                        ? LocalDateTime.now()
+                        : checkInDate.atTime(14, 0);
+            }
+            expectedOutAt = startAt.plusHours(hours);
+            checkInDate = startAt.toLocalDate();
+            checkOutDate = expectedOutAt.toLocalDate();
+            validateHourlyConflicts(room.getId(), -1, startAt, expectedOutAt);
+        } else {
+            validateDates(checkInDate, checkOutDate, pricingMode);
+            long overlaps = bookingRepository.countOverlappingBookings(room.getId(), -1, checkInDate, checkOutDate);
+            if (overlaps > 0) {
+                throw new ConflictException("Room already has an overlapping booking for these dates.");
+            }
+            if (request.isCheckInNow()) {
+                startAt = LocalDateTime.now();
+            }
+        }
+
+        String cleanPhone = request.getContactPhone().trim();
+        String cleanEmail = (request.getContactEmail() != null && !request.getContactEmail().isBlank())
+                ? request.getContactEmail().trim().toLowerCase()
+                : null;
+        String cleanIdentity = (request.getIdentityNo() != null && !request.getIdentityNo().isBlank())
+                ? request.getIdentityNo().trim()
+                : null;
+        String cleanAddress = (request.getAddress() != null && !request.getAddress().isBlank())
+                ? request.getAddress().trim()
+                : null;
+
+        Guest guest = guestRepository.findByPhone(cleanPhone)
+                .orElseGet(() -> Guest.builder()
+                        .fullName(request.getContactName().trim())
+                        .phone(cleanPhone)
+                        .email(cleanEmail)
+                        .identityNo(cleanIdentity)
+                        .address(cleanAddress)
+                        .customerIsActive(true)
+                        .build());
+
+        guest.setFullName(request.getContactName().trim());
+        if (cleanEmail != null) guest.setEmail(cleanEmail);
+        if (cleanIdentity != null) guest.setIdentityNo(cleanIdentity);
+        if (cleanAddress != null) guest.setAddress(cleanAddress);
+        guest = guestRepository.save(guest);
+
+        String bookingCode = "BK-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+        boolean checkInNow = request.isCheckInNow();
+
+        Booking booking = bookingRepository.save(Booking.builder()
+                .bookingCode(bookingCode)
+                .guest(guest)
+                .room(room)
+                .checkIn(checkInDate)
+                .checkOut(checkOutDate)
+                .checkInAt(startAt)
+                .expectedCheckOutAt(expectedOutAt)
+                .pricingMode(pricingMode)
+                .contactName(request.getContactName().trim())
+                .contactPhone(cleanPhone)
+                .adults(request.getAdults())
+                .children(request.getChildren())
+                .status(checkInNow ? BookingStatus.checked_in : BookingStatus.booked)
+                .note(request.getNote())
+                .packageSnapshot(room.getPackageName())
+                .build());
+
+        if (checkInNow) {
+            room.setStatus(RoomStatus.occupied);
+            roomRepository.save(room);
+        }
+
+        BigDecimal estimatedRoomTotal = calculateRoomTotalWithSurcharge(booking, room);
+        BigDecimal initialPaid = request.getDepositAmount() != null
+                ? request.getDepositAmount()
+                : estimatedRoomTotal.multiply(depositRate).setScale(0, RoundingMode.HALF_UP);
+
+        if (initialPaid.compareTo(BigDecimal.ZERO) > 0) {
+            paymentRepository.save(Payment.builder()
+                    .booking(booking)
+                    .amount(initialPaid)
+                    .method(request.getPaymentMethod() != null ? request.getPaymentMethod() : "Tien mat")
+                    .payerName(request.getContactName().trim())
+                    .cashierName(principal.getUsername())
+                    .adminId(principal.getId())
+                    .note(checkInNow ? "Walk-in reception check-in payment" : "Walk-in booking deposit")
+                    .build());
+        }
+
+        securityLogService.log(ActorType.admin, principal.getId(), "walkin_booking_create", "success",
+                "Walk-in booking " + bookingCode + " for room " + room.getRoomNumber() + (checkInNow ? " (checked in)" : ""));
+
+        return toBookingResponse(booking);
+    }
+
+    @Transactional
+    public BookingResponse adminUpdateBooking(Integer bookingId, AdminUpdateBookingRequest request, UserPrincipal principal) {
+        Booking booking = bookingRepository.findById(bookingId)
+                .orElseThrow(() -> new ResourceNotFoundException("Booking not found: " + bookingId));
+        enforceHotelScope(principal, booking.getRoom());
+
+        if (booking.getStatus() != BookingStatus.booked) {
+            throw new BusinessException("Chỉ có thể sửa các booking đang ở trạng thái Chờ nhận phòng.");
+        }
+
+        Room targetRoom = roomRepository.findByIdForUpdate(request.getRoomId())
+                .orElseThrow(() -> new ResourceNotFoundException("Room not found: " + request.getRoomId()));
+        enforceHotelScope(principal, targetRoom);
+
+        if (!Boolean.TRUE.equals(targetRoom.getIsActive()) || targetRoom.getStatus() == RoomStatus.maintenance) {
+            throw new BusinessException("Phòng được chọn hiện đang bảo trì hoặc không khả dụng.");
+        }
+
+        PricingMode pricingMode = request.getPricingMode() != null ? request.getPricingMode() : PricingMode.night;
+        LocalDate checkInDate = request.getCheckIn();
+        LocalDate checkOutDate = request.getCheckOut();
+        LocalDateTime startAt = request.getCheckInAt();
+        LocalDateTime expectedOutAt = null;
+
+        if (pricingMode == PricingMode.hour) {
+            int hours = request.getDurationHours() != null && request.getDurationHours() > 0
+                    ? request.getDurationHours() : 2;
+            if (startAt == null) {
+                startAt = checkInDate.equals(LocalDate.now())
+                        ? LocalDateTime.now()
+                        : checkInDate.atTime(14, 0);
+            }
+            expectedOutAt = startAt.plusHours(hours);
+            checkInDate = startAt.toLocalDate();
+            checkOutDate = expectedOutAt.toLocalDate();
+            validateHourlyConflicts(targetRoom.getId(), booking.getId(), startAt, expectedOutAt);
+        } else {
+            validateDates(checkInDate, checkOutDate, pricingMode);
+            long overlaps = bookingRepository.countOverlappingBookings(
+                    targetRoom.getId(), booking.getId(), checkInDate, checkOutDate);
+            if (overlaps > 0) {
+                throw new ConflictException("Phòng được chọn đã có đơn đặt trùng vào khoảng ngày này.");
+            }
+            startAt = null;
+            expectedOutAt = null;
+        }
+
+        booking.setRoom(targetRoom);
+        booking.setPricingMode(pricingMode);
+        booking.setCheckIn(checkInDate);
+        booking.setCheckOut(checkOutDate);
+        booking.setCheckInAt(startAt);
+        booking.setExpectedCheckOutAt(expectedOutAt);
+        booking.setAdults(request.getAdults());
+        booking.setChildren(request.getChildren());
+        booking.setContactName(request.getContactName().trim());
+        booking.setContactPhone(request.getContactPhone().trim());
+        booking.setNote(request.getNote());
+        booking.setPackageSnapshot(targetRoom.getPackageName());
+
+        Booking saved = bookingRepository.save(booking);
+        securityLogService.log(ActorType.admin, principal.getId(), "booking_update", "success",
+                "Updated booking " + saved.getBookingCode() + " (room " + targetRoom.getRoomNumber() + ")");
+        return toBookingResponse(saved);
+    }
+
+    private void validateHourlyConflicts(Integer roomId, Integer excludeBookingId, LocalDateTime startAt, LocalDateTime expectedOutAt) {
+        List<Booking> upcoming = bookingRepository.findActiveUpcomingBookings(roomId, startAt.toLocalDate());
+        for (Booking existing : upcoming) {
+            if (excludeBookingId != null && existing.getId().equals(excludeBookingId)) {
+                continue;
+            }
+            if (existing.getPricingMode() == PricingMode.hour
+                    && existing.getCheckInAt() != null
+                    && existing.getExpectedCheckOutAt() != null) {
+                if (startAt.isBefore(existing.getExpectedCheckOutAt()) && expectedOutAt.isAfter(existing.getCheckInAt())) {
+                    throw new ConflictException("Phòng đã có lịch theo giờ " + existing.getBookingCode()
+                            + " đến " + existing.getExpectedCheckOutAt().toLocalTime() + ".");
+                }
+            } else {
+                LocalDateTime existingTurnoverStart = existing.getCheckIn().atTime(12, 0);
+                LocalDateTime existingEnd = existing.getCheckOut().atTime(12, 0);
+                if (startAt.isBefore(existingEnd) && expectedOutAt.isAfter(existingTurnoverStart)) {
+                    throw new ConflictException("Phòng chỉ trống đến 12:00 ngày " + existing.getCheckIn()
+                            + " (trước đơn " + existing.getBookingCode() + ").");
+                }
+            }
+        }
     }
 
     @Transactional(readOnly = true)
@@ -252,45 +466,157 @@ public class BookingService {
     }
 
     @Transactional
+    public InvoiceSummaryResponse removeServiceFromBooking(Integer bookingId, Integer itemId, UserPrincipal principal) {
+        Booking booking = bookingRepository.findById(bookingId)
+                .orElseThrow(() -> new ResourceNotFoundException("Booking not found: " + bookingId));
+        enforceHotelScope(principal, booking.getRoom());
+
+        if (booking.getStatus() == BookingStatus.checked_out || booking.getStatus() == BookingStatus.cancelled) {
+            throw new BusinessException("Hóa đơn đã kết bill hoặc đã hủy, không thể xóa dịch vụ.");
+        }
+
+        BookingServiceItem item = bookingServiceItemRepository.findById(itemId)
+                .orElseThrow(() -> new ResourceNotFoundException("Service item not found: " + itemId));
+        if (!item.getBooking().getId().equals(bookingId)) {
+            throw new BusinessException("Dịch vụ này không thuộc hóa đơn đang chọn.");
+        }
+
+        String svcName = item.getService() != null ? item.getService().getServiceName() : ("#" + itemId);
+        bookingServiceItemRepository.delete(item);
+        securityLogService.log(ActorType.admin, principal.getId(), "booking_service_remove", "success",
+                "Removed service " + svcName + " from booking " + booking.getBookingCode());
+
+        return buildInvoiceSummary(booking);
+    }
+
+    @Transactional
+    public InvoiceSummaryResponse attachMemberToBooking(Integer bookingId, AttachMemberRequest request, UserPrincipal principal) {
+        Booking booking = bookingRepository.findById(bookingId)
+                .orElseThrow(() -> new ResourceNotFoundException("Booking not found: " + bookingId));
+        enforceHotelScope(principal, booking.getRoom());
+
+        if (booking.getStatus() == BookingStatus.checked_out || booking.getStatus() == BookingStatus.cancelled) {
+            throw new BusinessException("Không thể thay đổi tài khoản thành viên sau khi đã kết bill.");
+        }
+
+        Guest member;
+        if (request.getGuestId() != null) {
+            member = guestRepository.findById(request.getGuestId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Member profile not found: " + request.getGuestId()));
+        } else if (request.getIdentifier() != null && !request.getIdentifier().isBlank()) {
+            member = guestRepository.findMatchingMembersByIdentifier(request.getIdentifier().trim())
+                    .stream()
+                    .findFirst()
+                    .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tài khoản thành viên theo SĐT/CCCD đã nhập."));
+        } else {
+            throw new BusinessException("Vui lòng cung cấp SĐT/CCCD hoặc ID tài khoản thành viên.");
+        }
+
+        booking.setGuest(member);
+        bookingRepository.save(booking);
+        securityLogService.log(ActorType.admin, principal.getId(), "booking_member_attach", "success",
+                "Attached member KH" + member.getId() + " (" + member.getFullName() + ") to " + booking.getBookingCode());
+
+        return buildInvoiceSummary(booking);
+    }
+
+    @Transactional
     public PaymentResponse recordPayment(Integer bookingId, RecordPaymentRequest request, UserPrincipal principal) {
         Booking booking = bookingRepository.findById(bookingId)
                 .orElseThrow(() -> new ResourceNotFoundException("Booking not found: " + bookingId));
         enforceHotelScope(principal, booking.getRoom());
 
-        if ("Diem thuong".equalsIgnoreCase(request.getMethod()) || "Thanh toan bang diem".equalsIgnoreCase(request.getMethod())) {
-            Guest guest = booking.getGuest();
-            int currentPoints = guest.getLoyaltyPoints() != null ? guest.getLoyaltyPoints() : 0;
+        if (booking.getStatus() == BookingStatus.cancelled) {
+            throw new BusinessException("Không thể ghi nhận thanh toán cho đơn đã hủy.");
+        }
+
+        String paymentNote = request.getNote();
+        String payerName = request.getPayerName() != null && !request.getPayerName().isBlank()
+                ? request.getPayerName().trim()
+                : (booking.getContactName() != null ? booking.getContactName() : booking.getGuest().getFullName());
+
+        if (isLoyaltyPointMethod(request.getMethod())) {
+            Guest member = booking.getGuest();
+            if (request.getMemberGuestId() != null) {
+                member = guestRepository.findById(request.getMemberGuestId())
+                        .orElseThrow(() -> new ResourceNotFoundException("Member profile not found: " + request.getMemberGuestId()));
+                if (request.getVerifiedIdentifier() != null && !request.getVerifiedIdentifier().isBlank()) {
+                    String cleanId = request.getVerifiedIdentifier().trim();
+                    boolean matchesPhone = member.getPhone() != null && member.getPhone().trim().equalsIgnoreCase(cleanId);
+                    boolean matchesCccd = member.getIdentityNo() != null && member.getIdentityNo().trim().equalsIgnoreCase(cleanId);
+                    if (!matchesPhone && !matchesCccd) {
+                        throw new UnauthorizedException("Xác thực SĐT/CCCD không khớp với tài khoản thành viên đã chọn.");
+                    }
+                }
+            }
+            int currentPoints = member.getLoyaltyPoints() != null ? member.getLoyaltyPoints() : 0;
             int pointsNeeded = request.getAmount()
                     .divide(BigDecimal.valueOf(1000), 0, RoundingMode.CEILING)
                     .intValue();
             if (currentPoints < pointsNeeded) {
-                throw new BusinessException("Khach hang khong du diem thuong de thanh toan (" + currentPoints + " diem).");
+                throw new BusinessException("Tài khoản " + member.getFullName() + " không đủ điểm thưởng (" + currentPoints + " điểm).");
             }
-            guest.setLoyaltyPoints(currentPoints - pointsNeeded);
-            guestRepository.save(guest);
+            member.setLoyaltyPoints(currentPoints - pointsNeeded);
+            guestRepository.save(member);
+            payerName = member.getFullName();
+            String baseNote = (paymentNote != null && !paymentNote.isBlank()) ? paymentNote.trim() : ("Quy doi " + pointsNeeded + " diem");
+            paymentNote = baseNote + " [#MID:" + member.getId() + "|#PTS:" + pointsNeeded + "]";
         }
 
         Payment payment = paymentRepository.save(Payment.builder()
                 .booking(booking)
                 .amount(request.getAmount())
                 .method(request.getMethod())
-                .payerName(request.getPayerName() != null ? request.getPayerName() : booking.getGuest().getFullName())
+                .payerName(payerName)
                 .cashierName(principal.getUsername())
                 .adminId(principal.getId())
-                .note(request.getNote())
+                .note(paymentNote)
                 .build());
 
-        return PaymentResponse.builder()
-                .id(payment.getId())
-                .bookingId(booking.getId())
-                .bookingCode(booking.getBookingCode())
-                .amount(payment.getAmount())
-                .method(payment.getMethod())
-                .paidAt(payment.getPaidAt())
-                .payerName(payment.getPayerName())
-                .cashierName(payment.getCashierName())
-                .note(payment.getNote())
-                .build();
+        return toPaymentResponse(payment, booking);
+    }
+
+    @Transactional
+    public InvoiceSummaryResponse removePaymentFromBooking(Integer bookingId, Integer paymentId, UserPrincipal principal) {
+        Booking booking = bookingRepository.findById(bookingId)
+                .orElseThrow(() -> new ResourceNotFoundException("Booking not found: " + bookingId));
+        enforceHotelScope(principal, booking.getRoom());
+
+        if (booking.getStatus() == BookingStatus.checked_out || booking.getStatus() == BookingStatus.cancelled) {
+            throw new BusinessException("Hóa đơn đã kết bill hoặc đã hủy, không thể xóa khoản thanh toán.");
+        }
+
+        Payment payment = paymentRepository.findById(paymentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Payment not found: " + paymentId));
+        if (!payment.getBooking().getId().equals(bookingId)) {
+            throw new BusinessException("Khoản thanh toán không thuộc hóa đơn này.");
+        }
+
+        if (isBankTransferMethod(payment.getMethod(), payment.getId())) {
+            throw new BusinessException("Không thể xóa giao dịch chuyển khoản do không hoàn tiền tự động được.");
+        }
+
+        if (isLoyaltyPointMethod(payment.getMethod())) {
+            Integer memberId = extractIntTag(payment.getNote(), "#MID:(\\d+)");
+            Guest member = memberId != null
+                    ? guestRepository.findById(memberId).orElse(booking.getGuest())
+                    : booking.getGuest();
+            Integer ptsFromTag = extractIntTag(payment.getNote(), "#PTS:(\\d+)");
+            int ptsToRefund = ptsFromTag != null
+                    ? ptsFromTag
+                    : payment.getAmount().divide(BigDecimal.valueOf(1000), 0, RoundingMode.CEILING).intValue();
+            int current = member.getLoyaltyPoints() != null ? member.getLoyaltyPoints() : 0;
+            member.setLoyaltyPoints(current + ptsToRefund);
+            guestRepository.save(member);
+        }
+
+        String method = payment.getMethod();
+        BigDecimal amount = payment.getAmount();
+        paymentRepository.delete(payment);
+        securityLogService.log(ActorType.admin, principal.getId(), "booking_payment_remove", "success",
+                "Removed payment #" + paymentId + " (" + method + " " + amount + ") from booking " + booking.getBookingCode());
+
+        return buildInvoiceSummary(booking);
     }
 
     @Transactional
@@ -303,14 +629,14 @@ public class BookingService {
             throw new BusinessException("Booking must be in 'checked_in' status to check out.");
         }
 
-        InvoiceSummaryResponse invoice = buildInvoiceSummary(booking);
+        InvoiceSummaryResponse preInvoice = buildInvoiceSummary(booking);
 
         booking.setStatus(BookingStatus.checked_out);
         booking.setCheckedOutAt(LocalDateTime.now());
 
         int pointsEarned = 0;
-        if (booking.getLoyaltyAwardedAt() == null && invoice.getGrandTotal().compareTo(BigDecimal.ZERO) > 0) {
-            pointsEarned = invoice.getGrandTotal()
+        if (booking.getLoyaltyAwardedAt() == null && preInvoice.getGrandTotal().compareTo(BigDecimal.ZERO) > 0) {
+            pointsEarned = preInvoice.getGrandTotal()
                     .divide(BigDecimal.valueOf(loyaltyVndPerPoint), 0, RoundingMode.FLOOR)
                     .intValue();
             if (pointsEarned > 0) {
@@ -320,14 +646,16 @@ public class BookingService {
                 booking.setLoyaltyAwardedAt(LocalDateTime.now());
             }
         }
-        invoice.setLoyaltyPointsEarned(pointsEarned);
 
         Room room = booking.getRoom();
         room.setStatus(RoomStatus.cleaning);
         room.setHousekeepingStatus(HousekeepingStatus.pending);
         roomRepository.save(room);
-        bookingRepository.save(booking);
-        return invoice;
+        Booking saved = bookingRepository.save(booking);
+
+        InvoiceSummaryResponse finalInvoice = buildInvoiceSummary(saved);
+        finalInvoice.setLoyaltyPointsEarned(pointsEarned);
+        return finalInvoice;
     }
 
     @Transactional(readOnly = true)
@@ -349,6 +677,8 @@ public class BookingService {
 
     public InvoiceSummaryResponse buildInvoiceSummary(Booking booking) {
         Room room = booking.getRoom();
+        Hotel hotel = room.getHotel();
+        Guest guest = booking.getGuest();
         BigDecimal baseRoomCharge = calculateBaseRoomCharge(booking, room);
         BigDecimal extraSurcharge = calculateExtraGuestSurcharge(booking, room, baseRoomCharge);
 
@@ -372,17 +702,7 @@ public class BookingService {
 
         List<PaymentResponse> paymentItems = paymentRepository.findByBookingIdOrderByPaidAtAsc(booking.getId())
                 .stream()
-                .map(p -> PaymentResponse.builder()
-                        .id(p.getId())
-                        .bookingId(booking.getId())
-                        .bookingCode(booking.getBookingCode())
-                        .amount(p.getAmount())
-                        .method(p.getMethod())
-                        .paidAt(p.getPaidAt())
-                        .payerName(p.getPayerName())
-                        .cashierName(p.getCashierName())
-                        .note(p.getNote())
-                        .build())
+                .map(p -> toPaymentResponse(p, booking))
                 .toList();
 
         BigDecimal subtotal = baseRoomCharge.add(extraSurcharge).add(serviceCharge);
@@ -393,9 +713,40 @@ public class BookingService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal remaining = grandTotal.subtract(totalPaid).max(BigDecimal.ZERO);
 
+        BigDecimal guestSpent = guest != null ? paymentRepository.sumTotalSpentByGuestId(guest.getId()) : BigDecimal.ZERO;
+        String memberTier = CustomerService.resolveMembershipTier(guestSpent != null ? guestSpent : BigDecimal.ZERO);
+        String pkg = booking.getPackageSnapshot() != null && !booking.getPackageSnapshot().isBlank()
+                ? booking.getPackageSnapshot()
+                : room.getPackageName();
+
         return InvoiceSummaryResponse.builder()
                 .bookingId(booking.getId())
                 .bookingCode(booking.getBookingCode())
+                .bookingStatus(booking.getStatus())
+                .hotelName(hotel != null ? hotel.getHotelName() : "Spotki Hotel")
+                .hotelAddress(hotel != null ? hotel.getAddress() : null)
+                .hotelPhone(hotel != null ? hotel.getPhone() : null)
+                .roomNumber(room.getRoomNumber())
+                .roomType(room.getRoomType())
+                .packageName(pkg)
+                .pricingMode(booking.getPricingMode())
+                .adults(booking.getAdults())
+                .children(booking.getChildren())
+                .checkIn(booking.getCheckIn())
+                .checkOut(booking.getCheckOut())
+                .checkInAt(booking.getCheckInAt())
+                .expectedCheckOutAt(booking.getExpectedCheckOutAt())
+                .checkedOutAt(booking.getCheckedOutAt())
+                .guestId(guest != null ? guest.getId() : null)
+                .guestName(booking.getContactName() != null && !booking.getContactName().isBlank()
+                        ? booking.getContactName()
+                        : (guest != null ? guest.getFullName() : null))
+                .guestPhone(guest != null && guest.getPhone() != null ? guest.getPhone() : booking.getContactPhone())
+                .guestEmail(guest != null ? guest.getEmail() : null)
+                .guestIdentityNo(guest != null ? guest.getIdentityNo() : null)
+                .guestIsVip(guest != null ? guest.getIsVip() : false)
+                .guestLoyaltyPoints(guest != null && guest.getLoyaltyPoints() != null ? guest.getLoyaltyPoints() : 0)
+                .guestMembershipTier(memberTier)
                 .roomCharge(baseRoomCharge)
                 .extraGuestSurcharge(extraSurcharge)
                 .serviceCharge(serviceCharge)
@@ -410,8 +761,68 @@ public class BookingService {
                 .build();
     }
 
+    private PaymentResponse toPaymentResponse(Payment p, Booking booking) {
+        return PaymentResponse.builder()
+                .id(p.getId())
+                .bookingId(booking.getId())
+                .bookingCode(booking.getBookingCode())
+                .amount(p.getAmount())
+                .method(p.getMethod())
+                .paidAt(p.getPaidAt())
+                .payerName(p.getPayerName())
+                .cashierName(p.getCashierName())
+                .note(p.getNote())
+                .bankTransfer(isBankTransferMethod(p.getMethod(), p.getId()))
+                .build();
+    }
+
+    public boolean isBankTransferMethod(String method, Integer paymentId) {
+        if (paymentId != null && paymentGatewayTransactionRepository != null
+                && paymentGatewayTransactionRepository.existsByPaymentId(paymentId)) {
+            return true;
+        }
+        String norm = normalizeMethod(method);
+        return norm.contains("chuyen khoan")
+                || norm.contains("vietqr")
+                || norm.contains("online gateway")
+                || norm.contains("zalopay")
+                || norm.contains("bank");
+    }
+
+    private boolean isLoyaltyPointMethod(String method) {
+        String norm = normalizeMethod(method);
+        return norm.contains("diem thuong") || norm.contains("bang diem") || norm.contains("diem thanh vien");
+    }
+
+    private String normalizeMethod(String method) {
+        if (method == null) return "";
+        return Normalizer.normalize(method, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}+", "")
+                .replace('đ', 'd')
+                .replace('Đ', 'D')
+                .toLowerCase();
+    }
+
+    private Integer extractIntTag(String note, String regex) {
+        if (note == null || note.isBlank()) return null;
+        Matcher m = Pattern.compile(regex).matcher(note);
+        if (m.find()) {
+            try {
+                return Integer.parseInt(m.group(1));
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
     private BigDecimal calculateBaseRoomCharge(Booking booking, Room room) {
         if (booking.getPricingMode() == PricingMode.hour) {
+            if (booking.getCheckInAt() != null && booking.getExpectedCheckOutAt() != null) {
+                long minutes = Math.max(60, ChronoUnit.MINUTES.between(booking.getCheckInAt(), booking.getExpectedCheckOutAt()));
+                long hours = Math.max(1, (minutes + 59) / 60);
+                return room.getHourlyRate().multiply(BigDecimal.valueOf(hours));
+            }
             return room.getHourlyRate();
         }
         long nights = Math.max(1, ChronoUnit.DAYS.between(booking.getCheckIn(), booking.getCheckOut()));
@@ -499,8 +910,13 @@ public class BookingService {
                 .hotelName(room.getHotel() != null ? room.getHotel().getHotelName() : null)
                 .guestId(booking.getGuest().getId())
                 .guestName(booking.getGuest().getFullName())
+                .contactName(booking.getContactName())
+                .contactPhone(booking.getContactPhone())
+                .note(booking.getNote())
                 .checkIn(booking.getCheckIn())
                 .checkOut(booking.getCheckOut())
+                .checkInAt(booking.getCheckInAt())
+                .expectedCheckOutAt(booking.getExpectedCheckOutAt())
                 .pricingMode(booking.getPricingMode())
                 .adults(booking.getAdults())
                 .children(booking.getChildren())

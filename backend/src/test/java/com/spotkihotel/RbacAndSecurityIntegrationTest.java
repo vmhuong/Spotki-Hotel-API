@@ -113,6 +113,22 @@ class RbacAndSecurityIntegrationTest {
                         .content("{\"housekeepingStatus\":\"cleaning\"}"))
                 .andExpect(status().isUnauthorized());
 
+        // Report summary branch isolation: Saigon manager (hotelId=1) sees only Saigon rooms vs admin global count
+        String adminToken = loginAdmin("admin", "Admin@12345");
+        MvcResult mgrSummary = mockMvc.perform(get("/api/v1/admin/reports/summary")
+                        .header("Authorization", "Bearer " + managerSgToken))
+                .andExpect(status().isOk())
+                .andReturn();
+        MvcResult adminSummary = mockMvc.perform(get("/api/v1/admin/reports/summary")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andReturn();
+        int mgrTotalRooms = objectMapper.readTree(mgrSummary.getResponse().getContentAsString())
+                .path("data").path("totalRooms").asInt();
+        int adminTotalRooms = objectMapper.readTree(adminSummary.getResponse().getContentAsString())
+                .path("data").path("totalRooms").asInt();
+        org.assertj.core.api.Assertions.assertThat(mgrTotalRooms).isGreaterThan(0).isLessThan(adminTotalRooms);
+
         // Refresh Token rotation & Logout blacklist
         MvcResult loginRes = mockMvc.perform(post("/api/v1/auth/customer/login")
                         .contentType(MediaType.APPLICATION_JSON)

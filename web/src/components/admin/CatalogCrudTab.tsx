@@ -1,59 +1,121 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { api, getErrorMessage } from '../../api/client';
 import { ConfirmModal } from '../ConfirmModal';
 import { Pagination } from '../Pagination';
+import { AdminHeaderBar } from './AdminHeaderBar';
 import { useToast } from '../../context/ToastContext';
-import type { ApiResponse, Hotel, HotelServiceItem, PageResponse, Review, Room } from '../../types';
-import { FALLBACK_HOTEL_IMG, FALLBACK_ROOM_IMG, formatVnd } from '../../utils/format';
+import type { ApiResponse, Hotel, HotelServiceItem, PageResponse, Review, Room, RoomStatus } from '../../types';
+import { FALLBACK_HOTEL_IMG, FALLBACK_ROOM_IMG, formatVnd, ROOM_STATUS_BADGE } from '../../utils/format';
+
+interface HotelFormState {
+  id?: number;
+  hotelName: string;
+  brandName: string;
+  starRating: number;
+  address: string;
+  city: string;
+  phone: string;
+  email: string;
+  heroImage: string;
+  description: string;
+}
+
+interface RoomFormState {
+  id?: number;
+  hotelId: number;
+  roomNumber: string;
+  roomType: string;
+  floorNo: number;
+  capacity: number;
+  roomSize: string;
+  bedType: string;
+  pricePerNight: number;
+  hourlyRate: number;
+  extraGuestRatePercent: number;
+  amenities: string;
+  packageName: string;
+  imageUrl: string;
+  galleryUrls: string;
+  status: RoomStatus;
+}
+
+interface ServiceFormState {
+  id?: number;
+  serviceName: string;
+  unit: string;
+  price: number;
+}
+
+const emptyHotelForm = (): HotelFormState => ({
+  hotelName: '',
+  brandName: 'Spotki Hotels',
+  starRating: 5,
+  address: '',
+  city: '',
+  phone: '',
+  email: '',
+  heroImage: '',
+  description: '',
+});
+
+const emptyRoomForm = (hotelId: number): RoomFormState => ({
+  hotelId,
+  roomNumber: '',
+  roomType: 'Deluxe King',
+  floorNo: 1,
+  capacity: 2,
+  roomSize: '32m2',
+  bedType: '1 Giường King',
+  pricePerNight: 1800000,
+  hourlyRate: 450000,
+  extraGuestRatePercent: 25,
+  amenities: 'Wi-Fi, Điều hòa, Bàn làm việc, Minibar',
+  packageName: '',
+  imageUrl: '',
+  galleryUrls: '',
+  status: 'available',
+});
+
+const emptyServiceForm = (): ServiceFormState => ({
+  serviceName: '',
+  unit: 'lần',
+  price: 100000,
+});
 
 export const CatalogCrudTab: React.FC<{
   isGlobalAdmin: boolean;
-  section?: 'all' | 'hotels' | 'rooms' | 'services';
+  section?: 'all' | 'hotels' | 'rooms' | 'services' | 'reviews';
 }> = ({ isGlobalAdmin, section = 'all' }) => {
   const toast = useToast();
   const [hotels, setHotels] = useState<Hotel[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
-  const [roomsPage, setRoomsPage] = useState(0);
-  const [roomsTotalPages, setRoomsTotalPages] = useState(0);
-  const [roomsTotalElements, setRoomsTotalElements] = useState(0);
-
   const [services, setServices] = useState<HotelServiceItem[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [reviewsPage, setReviewsPage] = useState(0);
   const [reviewsTotalPages, setReviewsTotalPages] = useState(0);
   const [reviewsTotalElements, setReviewsTotalElements] = useState(0);
 
-  const [hotelName, setHotelName] = useState('');
-  const [city, setCity] = useState('');
-  const [address, setAddress] = useState('');
+  // Branch & room filtering
+  const [branchFilterId, setBranchFilterId] = useState<string>('all');
+  const [roomStatusFilter, setRoomStatusFilter] = useState<string>('');
+  const [roomKeyword, setRoomKeyword] = useState<string>('');
 
-  const [roomHotelId, setRoomHotelId] = useState(1);
-  const [roomNumber, setRoomNumber] = useState('');
-  const [roomType, setRoomType] = useState('');
-  const [pricePerNight, setPricePerNight] = useState(1800000);
-  const [hourlyRate, setHourlyRate] = useState(450000);
-
-  const [serviceName, setServiceName] = useState('');
-  const [serviceUnit, setServiceUnit] = useState('lan');
-  const [servicePrice, setServicePrice] = useState(50000);
-
-  const [editingHotel, setEditingHotel] = useState<Hotel | null>(null);
-  const [editingRoom, setEditingRoom] = useState<Room | null>(null);
-  const [editingService, setEditingService] = useState<HotelServiceItem | null>(null);
+  // Popup modals for Create / Edit
+  const [hotelModal, setHotelModal] = useState<{ mode: 'create' | 'edit'; data: HotelFormState } | null>(null);
+  const [roomModal, setRoomModal] = useState<{ mode: 'create' | 'edit'; data: RoomFormState } | null>(null);
+  const [serviceModal, setServiceModal] = useState<{ mode: 'create' | 'edit'; data: ServiceFormState } | null>(null);
   const [deleteRoomTarget, setDeleteRoomTarget] = useState<Room | null>(null);
 
-  const loadAll = async (rPage = roomsPage, revPage = reviewsPage) => {
+  const loadAll = async (revPage = reviewsPage) => {
     try {
       const [hRes, rRes, sRes, revRes] = await Promise.all([
         api.get<ApiResponse<Hotel[]>>('/admin/hotels'),
-        api.get<ApiResponse<PageResponse<Room>>>(`/rooms?page=${rPage}&size=10`),
+        api.get<ApiResponse<PageResponse<Room>>>('/rooms?page=0&size=200&sort=hotel.id,asc&sort=roomNumber,asc'),
         api.get<ApiResponse<HotelServiceItem[]>>('/admin/services'),
         api.get<ApiResponse<PageResponse<Review>>>(`/admin/reviews?page=${revPage}&size=8`),
       ]);
       setHotels(hRes.data.data || []);
       setRooms(rRes.data.data.content || []);
-      setRoomsTotalPages(rRes.data.data.totalPages || 0);
-      setRoomsTotalElements(rRes.data.data.totalElements || 0);
       setServices(sRes.data.data || []);
       setReviews(revRes.data.data.content || []);
       setReviewsTotalPages(revRes.data.data.totalPages || 0);
@@ -64,82 +126,169 @@ export const CatalogCrudTab: React.FC<{
   };
 
   useEffect(() => {
-    loadAll(roomsPage, reviewsPage);
+    loadAll(reviewsPage);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomsPage, reviewsPage]);
+  }, [reviewsPage]);
 
-  const createHotel = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      await api.post('/admin/hotels', { hotelName, city, address, starRating: 5 });
-      setHotelName('');
-      setCity('');
-      setAddress('');
-      toast.success('Đã tạo chi nhánh mới.');
-      loadAll();
-    } catch (err) {
-      toast.error(getErrorMessage(err));
-    }
-  };
+  const filteredRooms = useMemo(() => {
+    const q = roomKeyword.trim().toLowerCase();
+    return rooms.filter((r) => {
+      if (branchFilterId !== 'all' && String(r.hotelId) !== branchFilterId) return false;
+      if (roomStatusFilter && r.status !== roomStatusFilter) return false;
+      if (!q) return true;
+      return (
+        r.roomNumber.toLowerCase().includes(q) ||
+        r.roomType.toLowerCase().includes(q) ||
+        r.hotelName.toLowerCase().includes(q)
+      );
+    });
+  }, [rooms, branchFilterId, roomStatusFilter, roomKeyword]);
 
-  const saveHotelEdit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingHotel) return;
-    try {
-      await api.put(`/admin/hotels/${editingHotel.id}`, {
-        hotelName: editingHotel.hotelName,
-        brandName: editingHotel.brandName,
-        starRating: editingHotel.starRating,
-        address: editingHotel.address,
-        city: editingHotel.city,
-        phone: editingHotel.phone,
-        email: editingHotel.email,
-        heroImage: editingHotel.heroImage,
-        description: editingHotel.description,
+  const roomsByBranch = useMemo(() => {
+    const branchesToShow =
+      branchFilterId === 'all' ? hotels : hotels.filter((h) => String(h.id) === branchFilterId);
+
+    const groups = branchesToShow.map((hotel) => ({
+      hotel,
+      items: filteredRooms.filter((r) => r.hotelId === hotel.id),
+    }));
+
+    // Fallback in case rooms reference a hotel not returned in hotels list
+    const knownHotelIds = new Set(hotels.map((h) => h.id));
+    const orphanRooms = filteredRooms.filter((r) => !knownHotelIds.has(r.hotelId));
+    if (orphanRooms.length > 0 && branchFilterId === 'all') {
+      groups.push({
+        hotel: {
+          id: 0,
+          hotelName: orphanRooms[0].hotelName || 'Cơ sở khác',
+          brandName: 'Spotki Hotels',
+          starRating: 5,
+          address: '',
+          city: '',
+          isActive: true,
+        },
+        items: orphanRooms,
       });
-      setEditingHotel(null);
-      toast.success('Đã cập nhật thông tin chi nhánh.');
+    }
+
+    return groups;
+  }, [hotels, filteredRooms, branchFilterId]);
+
+  const roomCountByHotel = useMemo(() => {
+    const map = new Map<number, number>();
+    rooms.forEach((r) => {
+      map.set(r.hotelId, (map.get(r.hotelId) || 0) + 1);
+    });
+    return map;
+  }, [rooms]);
+
+  const openCreateHotel = () => setHotelModal({ mode: 'create', data: emptyHotelForm() });
+
+  const openEditHotel = (h: Hotel) =>
+    setHotelModal({
+      mode: 'edit',
+      data: {
+        id: h.id,
+        hotelName: h.hotelName,
+        brandName: h.brandName || 'Spotki Hotels',
+        starRating: h.starRating || 5,
+        address: h.address || '',
+        city: h.city || '',
+        phone: h.phone || '',
+        email: h.email || '',
+        heroImage: h.heroImage || '',
+        description: h.description || '',
+      },
+    });
+
+  const submitHotelModal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!hotelModal) return;
+    const payload = {
+      hotelName: hotelModal.data.hotelName.trim(),
+      brandName: hotelModal.data.brandName.trim() || 'Spotki Hotels',
+      starRating: hotelModal.data.starRating,
+      address: hotelModal.data.address.trim(),
+      city: hotelModal.data.city.trim(),
+      phone: hotelModal.data.phone.trim() || null,
+      email: hotelModal.data.email.trim() || null,
+      heroImage: hotelModal.data.heroImage.trim() || null,
+      description: hotelModal.data.description.trim() || null,
+    };
+    try {
+      if (hotelModal.mode === 'create') {
+        await api.post('/admin/hotels', payload);
+        toast.success('Đã tạo chi nhánh mới.');
+      } else {
+        await api.put(`/admin/hotels/${hotelModal.data.id}`, payload);
+        toast.success('Đã cập nhật thông tin chi nhánh.');
+      }
+      setHotelModal(null);
       loadAll();
     } catch (err) {
       toast.error(getErrorMessage(err));
     }
   };
 
-  const createRoom = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      await api.post('/admin/rooms', { hotelId: roomHotelId, roomNumber, roomType, pricePerNight, hourlyRate });
-      setRoomNumber('');
-      setRoomType('');
-      toast.success('Đã tạo phòng mới.');
-      loadAll();
-    } catch (err) {
-      toast.error(getErrorMessage(err));
-    }
+  const openCreateRoom = (defaultHotelId?: number) => {
+    const fallbackId =
+      defaultHotelId ||
+      (branchFilterId !== 'all' ? Number(branchFilterId) : hotels[0]?.id || 1);
+    setRoomModal({ mode: 'create', data: emptyRoomForm(fallbackId) });
   };
 
-  const saveRoomEdit = async (e: React.FormEvent) => {
+  const openEditRoom = (r: Room) =>
+    setRoomModal({
+      mode: 'edit',
+      data: {
+        id: r.id,
+        hotelId: r.hotelId,
+        roomNumber: r.roomNumber,
+        roomType: r.roomType,
+        floorNo: r.floorNo || 1,
+        capacity: r.capacity || 2,
+        roomSize: r.roomSize || '',
+        bedType: r.bedType || '',
+        pricePerNight: r.pricePerNight,
+        hourlyRate: r.hourlyRate,
+        extraGuestRatePercent: r.extraGuestRatePercent ?? 25,
+        amenities: r.amenities || '',
+        packageName: r.packageName || '',
+        imageUrl: r.imageUrl || '',
+        galleryUrls: r.galleryUrls || '',
+        status: r.status || 'available',
+      },
+    });
+
+  const submitRoomModal = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingRoom) return;
+    if (!roomModal) return;
+    const payload = {
+      hotelId: roomModal.data.hotelId,
+      roomNumber: roomModal.data.roomNumber.trim(),
+      roomType: roomModal.data.roomType.trim(),
+      floorNo: roomModal.data.floorNo,
+      capacity: roomModal.data.capacity,
+      roomSize: roomModal.data.roomSize.trim() || null,
+      bedType: roomModal.data.bedType.trim() || null,
+      pricePerNight: roomModal.data.pricePerNight,
+      hourlyRate: roomModal.data.hourlyRate,
+      extraGuestRatePercent: roomModal.data.extraGuestRatePercent,
+      amenities: roomModal.data.amenities.trim() || null,
+      packageName: roomModal.data.packageName.trim() || null,
+      imageUrl: roomModal.data.imageUrl.trim() || null,
+      galleryUrls: roomModal.data.galleryUrls.trim() || null,
+      status: roomModal.data.status,
+    };
     try {
-      await api.put(`/admin/rooms/${editingRoom.id}`, {
-        hotelId: editingRoom.hotelId,
-        roomNumber: editingRoom.roomNumber,
-        roomType: editingRoom.roomType,
-        floorNo: editingRoom.floorNo,
-        capacity: editingRoom.capacity,
-        roomSize: editingRoom.roomSize,
-        bedType: editingRoom.bedType,
-        pricePerNight: editingRoom.pricePerNight,
-        hourlyRate: editingRoom.hourlyRate,
-        extraGuestRatePercent: editingRoom.extraGuestRatePercent,
-        amenities: editingRoom.amenities,
-        packageName: editingRoom.packageName,
-        imageUrl: editingRoom.imageUrl,
-        galleryUrls: editingRoom.galleryUrls,
-      });
-      setEditingRoom(null);
-      toast.success('Đã cập nhật thông tin phòng.');
+      if (roomModal.mode === 'create') {
+        await api.post('/admin/rooms', payload);
+        toast.success('Đã tạo phòng mới.');
+      } else {
+        await api.put(`/admin/rooms/${roomModal.data.id}`, payload);
+        toast.success('Đã cập nhật thông tin phòng.');
+      }
+      setRoomModal(null);
       loadAll();
     } catch (err) {
       toast.error(getErrorMessage(err));
@@ -158,29 +307,36 @@ export const CatalogCrudTab: React.FC<{
     }
   };
 
-  const createService = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      await api.post('/admin/services', { serviceName, unit: serviceUnit, price: servicePrice });
-      setServiceName('');
-      toast.success('Đã tạo dịch vụ mới.');
-      loadAll();
-    } catch (err) {
-      toast.error(getErrorMessage(err));
-    }
-  };
+  const openCreateService = () => setServiceModal({ mode: 'create', data: emptyServiceForm() });
 
-  const saveServiceEdit = async (e: React.FormEvent) => {
+  const openEditService = (s: HotelServiceItem) =>
+    setServiceModal({
+      mode: 'edit',
+      data: {
+        id: s.id,
+        serviceName: s.serviceName,
+        unit: s.unit,
+        price: s.price,
+      },
+    });
+
+  const submitServiceModal = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingService) return;
+    if (!serviceModal) return;
+    const payload = {
+      serviceName: serviceModal.data.serviceName.trim(),
+      unit: serviceModal.data.unit.trim(),
+      price: serviceModal.data.price,
+    };
     try {
-      await api.put(`/admin/services/${editingService.id}`, {
-        serviceName: editingService.serviceName,
-        unit: editingService.unit,
-        price: editingService.price,
-      });
-      setEditingService(null);
-      toast.success('Đã cập nhật dịch vụ.');
+      if (serviceModal.mode === 'create') {
+        await api.post('/admin/services', payload);
+        toast.success('Đã tạo dịch vụ mới.');
+      } else {
+        await api.put(`/admin/services/${serviceModal.data.id}`, payload);
+        toast.success('Đã cập nhật dịch vụ.');
+      }
+      setServiceModal(null);
       loadAll();
     } catch (err) {
       toast.error(getErrorMessage(err));
@@ -190,57 +346,38 @@ export const CatalogCrudTab: React.FC<{
   return (
     <div className="space-y-6">
       {(section === 'all' || section === 'hotels') && (
-        <div className="card-editorial p-6 rounded-xl space-y-5">
-          <h3 className="font-display font-semibold text-xl text-[#181615]">
-            Chi nhánh khách sạn ({hotels.length})
-          </h3>
-          {isGlobalAdmin && (
-            <form onSubmit={createHotel} className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
-              <input
-                required
-                placeholder="Tên khách sạn"
-                value={hotelName}
-                onChange={(e) => setHotelName(e.target.value)}
-                className="h-10 rounded-lg border border-[#D9D1C5] px-3 text-xs"
-              />
-              <input
-                required
-                placeholder="Thành phố"
-                value={city}
-                onChange={(e) => setCity(e.target.value)}
-                className="h-10 rounded-lg border border-[#D9D1C5] px-3 text-xs"
-              />
-              <input
-                required
-                placeholder="Địa chỉ"
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                className="h-10 rounded-lg border border-[#D9D1C5] px-3 text-xs"
-              />
-              <button type="submit" className="btn-primary h-10 rounded-lg text-xs cursor-pointer">
+        <div className="space-y-5">
+          {isGlobalAdmin && section === 'hotels' && (
+            <AdminHeaderBar>
+              <button
+                type="button"
+                onClick={openCreateHotel}
+                className="btn-primary px-4 h-9 rounded-lg text-xs cursor-pointer"
+              >
                 + Thêm chi nhánh
               </button>
-            </form>
+            </AdminHeaderBar>
           )}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5 text-sm">
             {hotels.map((h) => (
-              <div key={h.id} className="rounded-xl border border-[#E6E0D6] overflow-hidden bg-white">
+              <div key={h.id} className="rounded-xl border border-[#E6E0D6] overflow-hidden bg-white flex flex-col">
                 <div className="aspect-video bg-[#EFECE6]">
                   <img src={h.heroImage || FALLBACK_HOTEL_IMG} alt={h.hotelName} className="w-full h-full object-cover" />
                 </div>
-                <div className="p-4 flex items-center justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="font-display font-semibold text-[#181615] truncate">{h.hotelName}</div>
+                <div className="p-4 flex-1 flex flex-col justify-between gap-3">
+                  <div>
+                    <div className="font-display font-semibold text-[#181615]">{h.hotelName}</div>
                     <div className="text-xs text-[#8B847C] mt-0.5">
-                      {h.city} · {h.isActive ? 'Đang hoạt động' : 'Tạm ngưng'}
+                      {h.city} · {h.isActive ? 'Đang hoạt động' : 'Tạm ngưng'} · {roomCountByHotel.get(h.id) || 0} phòng
                     </div>
+                    {h.address && <div className="text-xs text-[#5E5852] mt-1">{h.address}</div>}
                   </div>
                   {isGlobalAdmin && (
-                    <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="flex items-center justify-end gap-1.5 pt-2 border-t border-[#F1ECE3]">
                       <button
                         type="button"
-                        onClick={() => setEditingHotel(h)}
-                        className="px-3 py-1 rounded-lg border border-[#D9D1C5] bg-white hover:bg-[#F7F4EF] text-xs font-semibold cursor-pointer"
+                        onClick={() => openEditHotel(h)}
+                        className="px-3 py-1.5 rounded-lg border border-[#D9D1C5] bg-white hover:bg-[#F7F4EF] text-xs font-semibold cursor-pointer"
                       >
                         Sửa
                       </button>
@@ -255,7 +392,7 @@ export const CatalogCrudTab: React.FC<{
                             })
                             .catch((err) => toast.error(getErrorMessage(err)))
                         }
-                        className="px-3 py-1 rounded-lg bg-[#F7F4EF] hover:bg-[#EFECE6] text-xs font-semibold cursor-pointer"
+                        className="px-3 py-1.5 rounded-lg bg-[#F7F4EF] hover:bg-[#EFECE6] text-xs font-semibold cursor-pointer"
                       >
                         {h.isActive ? 'Tắt' : 'Bật'}
                       </button>
@@ -269,169 +406,180 @@ export const CatalogCrudTab: React.FC<{
       )}
 
       {(section === 'all' || section === 'rooms') && (
-        <div className="card-editorial p-6 rounded-xl space-y-5">
-          <h3 className="font-display font-semibold text-xl text-[#181615]">
-            Danh sách phòng ({roomsTotalElements})
-          </h3>
-          <form onSubmit={createRoom} className="grid grid-cols-1 sm:grid-cols-6 gap-2.5">
-            <select
-              value={roomHotelId}
-              onChange={(e) => setRoomHotelId(Number(e.target.value))}
-              className="h-10 rounded-lg border border-[#D9D1C5] px-3 text-xs bg-white"
-            >
+        <div className="space-y-5">
+          <AdminHeaderBar>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setBranchFilterId('all')}
+                className={`px-3 py-1.5 rounded-full text-xs font-semibold border cursor-pointer transition ${
+                  branchFilterId === 'all'
+                    ? 'bg-[#181615] text-white border-[#181615]'
+                    : 'bg-white text-[#5E5852] border-[#D9D1C5] hover:border-[#181615]'
+                }`}
+              >
+                Tất cả ({rooms.length})
+              </button>
               {hotels.map((h) => (
-                <option key={h.id} value={h.id}>
-                  {h.hotelName}
-                </option>
+                <button
+                  key={h.id}
+                  type="button"
+                  onClick={() => setBranchFilterId(String(h.id))}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold border cursor-pointer transition ${
+                    branchFilterId === String(h.id)
+                      ? 'bg-[#A63429] text-white border-[#A63429]'
+                      : 'bg-white text-[#5E5852] border-[#D9D1C5] hover:border-[#181615]'
+                  }`}
+                >
+                  {h.city || h.hotelName} ({roomCountByHotel.get(h.id) || 0})
+                </button>
               ))}
+            </div>
+
+            <select
+              value={roomStatusFilter}
+              onChange={(e) => setRoomStatusFilter(e.target.value)}
+              className="h-9 rounded-lg border border-[#D9D1C5] px-2.5 text-xs bg-white"
+            >
+              <option value="">Tất cả trạng thái</option>
+              <option value="available">Sẵn sàng</option>
+              <option value="occupied">Đang có khách</option>
+              <option value="cleaning">Chờ / Đang dọn</option>
+              <option value="maintenance">Bảo trì</option>
             </select>
             <input
-              required
-              placeholder="Số phòng (SG-301)"
-              value={roomNumber}
-              onChange={(e) => setRoomNumber(e.target.value)}
-              className="h-10 rounded-lg border border-[#D9D1C5] px-3 text-xs font-mono-num"
+              placeholder="Tìm số phòng, loại..."
+              value={roomKeyword}
+              onChange={(e) => setRoomKeyword(e.target.value)}
+              className="h-9 rounded-lg border border-[#D9D1C5] px-3 text-xs w-40 bg-white focus:outline-none focus:border-[#181615]"
             />
-            <input
-              required
-              placeholder="Loại phòng"
-              value={roomType}
-              onChange={(e) => setRoomType(e.target.value)}
-              className="h-10 rounded-lg border border-[#D9D1C5] px-3 text-xs"
-            />
-            <input
-              type="number"
-              required
-              placeholder="Giá đêm"
-              value={pricePerNight}
-              onChange={(e) => setPricePerNight(Number(e.target.value))}
-              className="h-10 rounded-lg border border-[#D9D1C5] px-3 text-xs font-mono-num"
-            />
-            <input
-              type="number"
-              required
-              placeholder="Giá giờ"
-              value={hourlyRate}
-              onChange={(e) => setHourlyRate(Number(e.target.value))}
-              className="h-10 rounded-lg border border-[#D9D1C5] px-3 text-xs font-mono-num"
-            />
-            <button type="submit" className="btn-primary h-10 rounded-lg text-xs cursor-pointer">
-              + Tạo phòng
+            <button
+              type="button"
+              onClick={() => openCreateRoom()}
+              className="btn-primary px-4 h-9 rounded-lg text-xs cursor-pointer"
+            >
+              + Tạo phòng mới
             </button>
-          </form>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs sm:text-sm tabular-nums">
-              <thead className="bg-[#F3EFE8] text-[#5E5852] text-[11px] font-bold uppercase tracking-[0.12em] border-b border-[#E6E0D6]">
-                <tr>
-                  <th className="text-left px-3.5 py-3">Số phòng</th>
-                  <th className="text-left px-3.5 py-3">Chi nhánh</th>
-                  <th className="text-left px-3.5 py-3">Loại phòng</th>
-                  <th className="text-right px-3.5 py-3">Giá đêm</th>
-                  <th className="text-center px-3.5 py-3">Trạng thái</th>
-                  <th className="text-right px-3.5 py-3">Thao tác</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#E6E0D6]">
-                {rooms.map((r) => (
-                  <tr key={r.id} className="hover:bg-[#F7F4EF]/60 transition-colors">
-                    <td className="px-3.5 py-3 font-bold">
-                      <div className="flex items-center gap-3">
-                        <img
-                          src={r.imageUrl || FALLBACK_ROOM_IMG}
-                          alt={r.roomNumber}
-                          className="w-12 h-9 rounded-lg object-cover bg-[#EFECE6] shrink-0"
-                        />
-                        <span className="font-mono-num text-[#181615]">{r.roomNumber}</span>
-                      </div>
-                    </td>
-                    <td className="px-3.5 py-3 text-[#5E5852]">{r.hotelName}</td>
-                    <td className="px-3.5 py-3 font-medium text-[#181615]">{r.roomType}</td>
-                    <td className="px-3.5 py-3 text-right font-mono-num font-semibold text-[#181615]">
-                      {formatVnd(r.pricePerNight)}
-                    </td>
-                    <td className="px-3.5 py-3 text-center">
-                      <select
-                        value={r.status}
-                        onChange={(e) =>
-                          api
-                            .patch(`/admin/rooms/${r.id}/status?status=${e.target.value}`)
-                            .then(() => {
-                              toast.success(`Đã cập nhật trạng thái phòng ${r.roomNumber}.`);
-                              loadAll();
-                            })
-                            .catch((err) => toast.error(getErrorMessage(err)))
-                        }
-                        className="rounded-lg border border-[#D9D1C5] px-2.5 py-1 text-xs bg-white"
-                      >
-                        <option value="available">available</option>
-                        <option value="occupied">occupied</option>
-                        <option value="cleaning">cleaning</option>
-                        <option value="maintenance">maintenance</option>
-                      </select>
-                    </td>
-                    <td className="px-3.5 py-3 text-right">
-                      <div className="inline-flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => setEditingRoom(r)}
-                          className="px-3 py-1 rounded-lg border border-[#D9D1C5] bg-white hover:bg-[#F7F4EF] text-xs font-semibold cursor-pointer"
-                        >
-                          Sửa
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setDeleteRoomTarget(r)}
-                          className="px-3 py-1 rounded-lg bg-[#FBEFEE] hover:bg-[#F6DFDC] text-[#A63429] text-xs font-semibold cursor-pointer"
-                        >
-                          Xóa
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <Pagination
-            page={roomsPage}
-            totalPages={roomsTotalPages}
-            totalElements={roomsTotalElements}
-            onPageChange={setRoomsPage}
-          />
+          </AdminHeaderBar>
+
+          {/* Per-Branch Room Groups */}
+          {roomsByBranch.map(({ hotel, items }) => (
+              <div key={hotel.id || hotel.hotelName} className="card-editorial rounded-xl overflow-hidden">
+                <div className="px-5 py-4 bg-[#FAF8F5] border-b border-[#E6E0D6] flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2.5">
+                      <span className="w-2 h-2 rounded-full bg-[#A63429]" />
+                      <h4 className="font-display text-lg font-semibold text-[#181615]">{hotel.hotelName}</h4>
+                      {hotel.city && (
+                        <span className="px-2.5 py-0.5 rounded-full bg-white border border-[#E6E0D6] text-[11px] font-semibold text-[#5E5852]">
+                          {hotel.city}
+                        </span>
+                      )}
+                    </div>
+                    {hotel.address && <p className="text-xs text-[#8B847C] mt-0.5 pl-4">{hotel.address}</p>}
+                  </div>
+                </div>
+
+                {items.length === 0 ? (
+                  <div className="p-8 text-center text-xs text-[#8B847C]">
+                    Không có phòng nào phù hợp bộ lọc tại chi nhánh này.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs sm:text-sm tabular-nums">
+                      <thead className="bg-[#F3EFE8] text-[#5E5852] text-[11px] font-bold uppercase tracking-[0.12em] border-b border-[#E6E0D6]">
+                        <tr>
+                          <th className="text-left px-4 py-3">Số phòng</th>
+                          <th className="text-left px-4 py-3">Loại phòng &amp; Chi tiết</th>
+                          <th className="text-right px-4 py-3">Giá đêm / Giờ</th>
+                          <th className="text-center px-4 py-3">Trạng thái</th>
+                          <th className="text-right px-4 py-3">Thao tác</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#E6E0D6]">
+                        {items.map((r) => {
+                          const badge = ROOM_STATUS_BADGE[r.status];
+                          return (
+                            <tr key={r.id} className="hover:bg-[#F7F4EF]/60 transition-colors">
+                              <td className="px-4 py-3 font-bold">
+                                <div className="flex items-center gap-3">
+                                  <img
+                                    src={r.imageUrl || FALLBACK_ROOM_IMG}
+                                    alt={r.roomNumber}
+                                    className="w-12 h-9 rounded-lg object-cover bg-[#EFECE6] shrink-0"
+                                  />
+                                  <div>
+                                    <div className="font-mono-num text-[#181615]">{r.roomNumber}</div>
+                                    <div className="text-[11px] font-normal text-[#8B847C]">Tầng {r.floorNo}</div>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="font-medium text-[#181615]">{r.roomType}</div>
+                                <div className="text-[11px] text-[#8B847C] mt-0.5">
+                                  {r.capacity} khách {r.roomSize ? `· ${r.roomSize}` : ''} {r.bedType ? `· ${r.bedType}` : ''}
+                                </div>
+                              </td>
+                              <td className="px-4 py-3 text-right font-mono-num">
+                                <div className="font-semibold text-[#181615]">{formatVnd(r.pricePerNight)}</div>
+                                <div className="text-[11px] text-[#8B847C]">{formatVnd(r.hourlyRate)} / giờ</div>
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                <span
+                                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${
+                                    badge?.className || 'bg-[#F3EFE8] text-[#5E5852] border-[#E6E0D6]'
+                                  }`}
+                                >
+                                  {badge?.dot && <span className={`w-1.5 h-1.5 rounded-full ${badge.dot}`} />}
+                                  {badge?.label || r.status}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-right">
+                                <div className="inline-flex items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => openEditRoom(r)}
+                                    className="px-3 py-1 rounded-lg border border-[#D9D1C5] bg-white hover:bg-[#F7F4EF] text-xs font-semibold cursor-pointer"
+                                  >
+                                    Sửa
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setDeleteRoomTarget(r)}
+                                    className="px-3 py-1 rounded-lg bg-[#FBEFEE] hover:bg-[#F6DFDC] text-[#A63429] text-xs font-semibold cursor-pointer"
+                                  >
+                                    Xóa
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+          ))}
         </div>
       )}
 
-      {(section === 'all' || section === 'services') && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {(section === 'all' || section === 'services' || section === 'reviews') && (
+        <div className={section === 'reviews' ? 'space-y-6' : 'grid grid-cols-1 lg:grid-cols-2 gap-6'}>
+          {section === 'services' && (
+            <AdminHeaderBar>
+              <button
+                type="button"
+                onClick={openCreateService}
+                className="btn-primary px-4 h-9 rounded-lg text-xs cursor-pointer"
+              >
+                + Thêm dịch vụ
+              </button>
+            </AdminHeaderBar>
+          )}
+          {(section === 'all' || section === 'services') && (
           <div className="card-editorial p-6 rounded-xl space-y-4">
             <h3 className="font-display font-semibold text-xl text-[#181615]">Dịch vụ ({services.length})</h3>
-            <form onSubmit={createService} className="grid grid-cols-5 gap-2">
-              <input
-                required
-                placeholder="Tên DV"
-                value={serviceName}
-                onChange={(e) => setServiceName(e.target.value)}
-                className="col-span-2 h-9 rounded-lg border border-[#D9D1C5] px-3 text-xs"
-              />
-              <input
-                required
-                placeholder="Đơn vị"
-                value={serviceUnit}
-                onChange={(e) => setServiceUnit(e.target.value)}
-                className="h-9 rounded-lg border border-[#D9D1C5] px-2 text-xs"
-              />
-              <input
-                type="number"
-                required
-                placeholder="Giá"
-                value={servicePrice}
-                onChange={(e) => setServicePrice(Number(e.target.value))}
-                className="h-9 rounded-lg border border-[#D9D1C5] px-2 text-xs font-mono-num"
-              />
-              <button type="submit" className="btn-primary h-9 rounded-lg text-xs cursor-pointer">
-                + Thêm
-              </button>
-            </form>
             <div className="space-y-2 text-xs tabular-nums">
               {services.map((s) => (
                 <div
@@ -448,7 +596,7 @@ export const CatalogCrudTab: React.FC<{
                   <div className="flex items-center gap-1.5">
                     <button
                       type="button"
-                      onClick={() => setEditingService(s)}
+                      onClick={() => openEditService(s)}
                       className="px-2.5 py-1 rounded-lg border border-[#D9D1C5] bg-white font-semibold cursor-pointer"
                     >
                       Sửa
@@ -470,6 +618,7 @@ export const CatalogCrudTab: React.FC<{
               ))}
             </div>
           </div>
+          )}
 
           <div className="card-editorial p-6 rounded-xl space-y-4">
             <h3 className="font-display font-semibold text-xl text-[#181615]">
@@ -533,51 +682,73 @@ export const CatalogCrudTab: React.FC<{
         onCancel={() => setDeleteRoomTarget(null)}
       />
 
-      {editingHotel && (
+      {/* Popup Create / Edit Hotel */}
+      {hotelModal && (
         <div className="fixed inset-0 z-50 bg-[#141312]/60 backdrop-blur-[2px] flex items-center justify-center p-4">
           <form
-            onSubmit={saveHotelEdit}
+            onSubmit={submitHotelModal}
             className="bg-white rounded-xl p-6 max-w-lg w-full space-y-3 text-sm max-h-[90vh] overflow-y-auto border border-[#E6E0D6] shadow-2xl"
           >
             <h3 className="font-display font-semibold text-lg text-[#181615]">
-              Sửa chi nhánh: {editingHotel.hotelName}
+              {hotelModal.mode === 'create'
+                ? 'Thêm chi nhánh mới'
+                : `Sửa chi nhánh: ${hotelModal.data.hotelName}`}
             </h3>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs text-[#5E5852] mb-1">Tên chi nhánh</label>
+                <label className="block text-xs text-[#5E5852] mb-1">Tên chi nhánh *</label>
                 <input
                   required
-                  value={editingHotel.hotelName}
-                  onChange={(e) => setEditingHotel({ ...editingHotel, hotelName: e.target.value })}
+                  value={hotelModal.data.hotelName}
+                  onChange={(e) =>
+                    setHotelModal({ ...hotelModal, data: { ...hotelModal.data, hotelName: e.target.value } })
+                  }
                   className="w-full h-9 rounded-lg border border-[#D9D1C5] px-3"
                 />
               </div>
               <div>
-                <label className="block text-xs text-[#5E5852] mb-1">Thành phố</label>
+                <label className="block text-xs text-[#5E5852] mb-1">Thành phố *</label>
                 <input
                   required
-                  value={editingHotel.city}
-                  onChange={(e) => setEditingHotel({ ...editingHotel, city: e.target.value })}
+                  value={hotelModal.data.city}
+                  onChange={(e) =>
+                    setHotelModal({ ...hotelModal, data: { ...hotelModal.data, city: e.target.value } })
+                  }
                   className="w-full h-9 rounded-lg border border-[#D9D1C5] px-3"
                 />
               </div>
             </div>
             <div>
-              <label className="block text-xs text-[#5E5852] mb-1">Địa chỉ</label>
+              <label className="block text-xs text-[#5E5852] mb-1">Địa chỉ *</label>
               <input
                 required
-                value={editingHotel.address}
-                onChange={(e) => setEditingHotel({ ...editingHotel, address: e.target.value })}
+                value={hotelModal.data.address}
+                onChange={(e) =>
+                  setHotelModal({ ...hotelModal, data: { ...hotelModal.data, address: e.target.value } })
+                }
                 className="w-full h-9 rounded-lg border border-[#D9D1C5] px-3"
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <div>
                 <label className="block text-xs text-[#5E5852] mb-1">Hotline</label>
                 <input
-                  value={editingHotel.phone || ''}
-                  onChange={(e) => setEditingHotel({ ...editingHotel, phone: e.target.value })}
+                  value={hotelModal.data.phone}
+                  onChange={(e) =>
+                    setHotelModal({ ...hotelModal, data: { ...hotelModal.data, phone: e.target.value } })
+                  }
                   className="w-full h-9 rounded-lg border border-[#D9D1C5] px-3 font-mono-num"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-[#5E5852] mb-1">Email</label>
+                <input
+                  type="email"
+                  value={hotelModal.data.email}
+                  onChange={(e) =>
+                    setHotelModal({ ...hotelModal, data: { ...hotelModal.data, email: e.target.value } })
+                  }
+                  className="w-full h-9 rounded-lg border border-[#D9D1C5] px-3"
                 />
               </div>
               <div>
@@ -586,8 +757,13 @@ export const CatalogCrudTab: React.FC<{
                   type="number"
                   min={1}
                   max={5}
-                  value={editingHotel.starRating}
-                  onChange={(e) => setEditingHotel({ ...editingHotel, starRating: Number(e.target.value) })}
+                  value={hotelModal.data.starRating}
+                  onChange={(e) =>
+                    setHotelModal({
+                      ...hotelModal,
+                      data: { ...hotelModal.data, starRating: Number(e.target.value) },
+                    })
+                  }
                   className="w-full h-9 rounded-lg border border-[#D9D1C5] px-3 font-mono-num"
                 />
               </div>
@@ -595,8 +771,11 @@ export const CatalogCrudTab: React.FC<{
             <div>
               <label className="block text-xs text-[#5E5852] mb-1">Ảnh đại diện (URL)</label>
               <input
-                value={editingHotel.heroImage || ''}
-                onChange={(e) => setEditingHotel({ ...editingHotel, heroImage: e.target.value })}
+                placeholder="/images/hero-saigon.jpg"
+                value={hotelModal.data.heroImage}
+                onChange={(e) =>
+                  setHotelModal({ ...hotelModal, data: { ...hotelModal.data, heroImage: e.target.value } })
+                }
                 className="w-full h-9 rounded-lg border border-[#D9D1C5] px-3"
               />
             </div>
@@ -604,74 +783,124 @@ export const CatalogCrudTab: React.FC<{
               <label className="block text-xs text-[#5E5852] mb-1">Mô tả</label>
               <textarea
                 rows={2}
-                value={editingHotel.description || ''}
-                onChange={(e) => setEditingHotel({ ...editingHotel, description: e.target.value })}
+                value={hotelModal.data.description}
+                onChange={(e) =>
+                  setHotelModal({ ...hotelModal, data: { ...hotelModal.data, description: e.target.value } })
+                }
                 className="w-full rounded-lg border border-[#D9D1C5] p-2.5"
               />
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <button
                 type="button"
-                onClick={() => setEditingHotel(null)}
+                onClick={() => setHotelModal(null)}
                 className="px-4 py-2 rounded-lg border border-[#D9D1C5] text-xs font-semibold cursor-pointer"
               >
                 Đóng
               </button>
               <button type="submit" className="btn-primary px-4 py-2 rounded-lg text-xs cursor-pointer">
-                Lưu chi nhánh
+                {hotelModal.mode === 'create' ? 'Tạo chi nhánh' : 'Lưu chi nhánh'}
               </button>
             </div>
           </form>
         </div>
       )}
 
-      {editingRoom && (
+      {/* Popup Create / Edit Room */}
+      {roomModal && (
         <div className="fixed inset-0 z-50 bg-[#141312]/60 backdrop-blur-[2px] flex items-center justify-center p-4">
           <form
-            onSubmit={saveRoomEdit}
+            onSubmit={submitRoomModal}
             className="bg-white rounded-xl p-6 max-w-xl w-full space-y-3 text-sm max-h-[90vh] overflow-y-auto border border-[#E6E0D6] shadow-2xl"
           >
             <h3 className="font-display font-semibold text-lg text-[#181615]">
-              Chỉnh sửa phòng {editingRoom.roomNumber}
+              {roomModal.mode === 'create' ? 'Tạo phòng mới' : `Chỉnh sửa phòng ${roomModal.data.roomNumber}`}
             </h3>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <div>
-                <label className="block text-xs text-[#5E5852] mb-1">Số phòng</label>
+                <label className="block text-xs text-[#5E5852] mb-1">Chi nhánh *</label>
+                <select
+                  disabled={roomModal.mode === 'edit'}
+                  value={roomModal.data.hotelId}
+                  onChange={(e) =>
+                    setRoomModal({ ...roomModal, data: { ...roomModal.data, hotelId: Number(e.target.value) } })
+                  }
+                  className="w-full h-9 rounded-lg border border-[#D9D1C5] px-2.5 bg-white disabled:bg-[#F7F4EF]"
+                >
+                  {hotels.map((h) => (
+                    <option key={h.id} value={h.id}>
+                      {h.hotelName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-[#5E5852] mb-1">Số phòng *</label>
                 <input
                   required
-                  value={editingRoom.roomNumber}
-                  onChange={(e) => setEditingRoom({ ...editingRoom, roomNumber: e.target.value })}
+                  placeholder="VD: SG-301"
+                  value={roomModal.data.roomNumber}
+                  onChange={(e) =>
+                    setRoomModal({ ...roomModal, data: { ...roomModal.data, roomNumber: e.target.value } })
+                  }
                   className="w-full h-9 rounded-lg border border-[#D9D1C5] px-3 font-mono-num"
                 />
               </div>
               <div>
-                <label className="block text-xs text-[#5E5852] mb-1">Loại phòng</label>
+                <label className="block text-xs text-[#5E5852] mb-1">Loại phòng *</label>
                 <input
                   required
-                  value={editingRoom.roomType}
-                  onChange={(e) => setEditingRoom({ ...editingRoom, roomType: e.target.value })}
+                  placeholder="Deluxe King"
+                  value={roomModal.data.roomType}
+                  onChange={(e) =>
+                    setRoomModal({ ...roomModal, data: { ...roomModal.data, roomType: e.target.value } })
+                  }
                   className="w-full h-9 rounded-lg border border-[#D9D1C5] px-3"
                 />
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-4 gap-3">
               <div>
-                <label className="block text-xs text-[#5E5852] mb-1">Giá đêm</label>
+                <label className="block text-xs text-[#5E5852] mb-1">Giá đêm *</label>
                 <input
                   type="number"
                   required
-                  value={editingRoom.pricePerNight}
-                  onChange={(e) => setEditingRoom({ ...editingRoom, pricePerNight: Number(e.target.value) })}
+                  min={0}
+                  value={roomModal.data.pricePerNight}
+                  onChange={(e) =>
+                    setRoomModal({
+                      ...roomModal,
+                      data: { ...roomModal.data, pricePerNight: Number(e.target.value) },
+                    })
+                  }
                   className="w-full h-9 rounded-lg border border-[#D9D1C5] px-3 font-mono-num"
                 />
               </div>
               <div>
-                <label className="block text-xs text-[#5E5852] mb-1">Giá giờ</label>
+                <label className="block text-xs text-[#5E5852] mb-1">Giá giờ *</label>
                 <input
                   type="number"
                   required
-                  value={editingRoom.hourlyRate}
-                  onChange={(e) => setEditingRoom({ ...editingRoom, hourlyRate: Number(e.target.value) })}
+                  min={0}
+                  value={roomModal.data.hourlyRate}
+                  onChange={(e) =>
+                    setRoomModal({
+                      ...roomModal,
+                      data: { ...roomModal.data, hourlyRate: Number(e.target.value) },
+                    })
+                  }
+                  className="w-full h-9 rounded-lg border border-[#D9D1C5] px-3 font-mono-num"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-[#5E5852] mb-1">Tầng</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={roomModal.data.floorNo}
+                  onChange={(e) =>
+                    setRoomModal({ ...roomModal, data: { ...roomModal.data, floorNo: Number(e.target.value) } })
+                  }
                   className="w-full h-9 rounded-lg border border-[#D9D1C5] px-3 font-mono-num"
                 />
               </div>
@@ -680,43 +909,88 @@ export const CatalogCrudTab: React.FC<{
                 <input
                   type="number"
                   min={1}
-                  value={editingRoom.capacity}
-                  onChange={(e) => setEditingRoom({ ...editingRoom, capacity: Number(e.target.value) })}
+                  value={roomModal.data.capacity}
+                  onChange={(e) =>
+                    setRoomModal({ ...roomModal, data: { ...roomModal.data, capacity: Number(e.target.value) } })
+                  }
                   className="w-full h-9 rounded-lg border border-[#D9D1C5] px-3 font-mono-num"
                 />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <div>
                 <label className="block text-xs text-[#5E5852] mb-1">Diện tích</label>
                 <input
-                  value={editingRoom.roomSize || ''}
-                  onChange={(e) => setEditingRoom({ ...editingRoom, roomSize: e.target.value })}
+                  value={roomModal.data.roomSize}
+                  onChange={(e) =>
+                    setRoomModal({ ...roomModal, data: { ...roomModal.data, roomSize: e.target.value } })
+                  }
                   className="w-full h-9 rounded-lg border border-[#D9D1C5] px-3"
                 />
               </div>
               <div>
-                <label className="block text-xs text-[#5E5852] mb-1">Giường</label>
+                <label className="block text-xs text-[#5E5852] mb-1">Loại giường</label>
                 <input
-                  value={editingRoom.bedType || ''}
-                  onChange={(e) => setEditingRoom({ ...editingRoom, bedType: e.target.value })}
+                  value={roomModal.data.bedType}
+                  onChange={(e) =>
+                    setRoomModal({ ...roomModal, data: { ...roomModal.data, bedType: e.target.value } })
+                  }
                   className="w-full h-9 rounded-lg border border-[#D9D1C5] px-3"
                 />
               </div>
+              <div>
+                <label className="block text-xs text-[#5E5852] mb-1">Phụ thu khách thêm (%)</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={roomModal.data.extraGuestRatePercent}
+                  onChange={(e) =>
+                    setRoomModal({
+                      ...roomModal,
+                      data: { ...roomModal.data, extraGuestRatePercent: Number(e.target.value) },
+                    })
+                  }
+                  className="w-full h-9 rounded-lg border border-[#D9D1C5] px-3 font-mono-num"
+                />
+              </div>
             </div>
-            <div>
-              <label className="block text-xs text-[#5E5852] mb-1">Tiện nghi</label>
-              <input
-                value={editingRoom.amenities || ''}
-                onChange={(e) => setEditingRoom({ ...editingRoom, amenities: e.target.value })}
-                className="w-full h-9 rounded-lg border border-[#D9D1C5] px-3"
-              />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-[#5E5852] mb-1">Tiện nghi</label>
+                <input
+                  value={roomModal.data.amenities}
+                  onChange={(e) =>
+                    setRoomModal({ ...roomModal, data: { ...roomModal.data, amenities: e.target.value } })
+                  }
+                  className="w-full h-9 rounded-lg border border-[#D9D1C5] px-3"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-[#5E5852] mb-1">Trạng thái phòng &amp; Bảo trì</label>
+                <select
+                  value={roomModal.data.status}
+                  onChange={(e) =>
+                    setRoomModal({
+                      ...roomModal,
+                      data: { ...roomModal.data, status: e.target.value as RoomStatus },
+                    })
+                  }
+                  className="w-full h-9 rounded-lg border border-[#D9D1C5] px-3 bg-white"
+                >
+                  <option value="available">Sẵn sàng đón khách</option>
+                  <option value="maintenance">Đang bảo trì (tạm ngưng đặt)</option>
+                  <option value="cleaning">Chờ / Đang dọn phòng</option>
+                  <option value="occupied">Đang có khách</option>
+                </select>
+              </div>
             </div>
             <div>
               <label className="block text-xs text-[#5E5852] mb-1">Ảnh chính (URL)</label>
               <input
-                value={editingRoom.imageUrl || ''}
-                onChange={(e) => setEditingRoom({ ...editingRoom, imageUrl: e.target.value })}
+                value={roomModal.data.imageUrl}
+                onChange={(e) =>
+                  setRoomModal({ ...roomModal, data: { ...roomModal.data, imageUrl: e.target.value } })
+                }
                 className="w-full h-9 rounded-lg border border-[#D9D1C5] px-3"
               />
             </div>
@@ -724,60 +998,78 @@ export const CatalogCrudTab: React.FC<{
               <label className="block text-xs text-[#5E5852] mb-1">Thư viện ảnh (URLs cách nhau dấu phẩy)</label>
               <textarea
                 rows={2}
-                value={editingRoom.galleryUrls || ''}
-                onChange={(e) => setEditingRoom({ ...editingRoom, galleryUrls: e.target.value })}
+                value={roomModal.data.galleryUrls}
+                onChange={(e) =>
+                  setRoomModal({ ...roomModal, data: { ...roomModal.data, galleryUrls: e.target.value } })
+                }
                 className="w-full rounded-lg border border-[#D9D1C5] p-2.5"
               />
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <button
                 type="button"
-                onClick={() => setEditingRoom(null)}
+                onClick={() => setRoomModal(null)}
                 className="px-4 py-2 rounded-lg border border-[#D9D1C5] text-xs font-semibold cursor-pointer"
               >
                 Đóng
               </button>
               <button type="submit" className="btn-primary px-4 py-2 rounded-lg text-xs cursor-pointer">
-                Lưu thay đổi
+                {roomModal.mode === 'create' ? 'Tạo phòng' : 'Lưu thay đổi'}
               </button>
             </div>
           </form>
         </div>
       )}
 
-      {editingService && (
+      {/* Popup Create / Edit Service */}
+      {serviceModal && (
         <div className="fixed inset-0 z-50 bg-[#141312]/60 backdrop-blur-[2px] flex items-center justify-center p-4">
           <form
-            onSubmit={saveServiceEdit}
+            onSubmit={submitServiceModal}
             className="bg-white rounded-xl p-6 max-w-sm w-full space-y-3 text-sm border border-[#E6E0D6] shadow-2xl"
           >
-            <h3 className="font-display font-semibold text-lg text-[#181615]">Chỉnh sửa dịch vụ</h3>
+            <h3 className="font-display font-semibold text-lg text-[#181615]">
+              {serviceModal.mode === 'create' ? 'Thêm dịch vụ mới' : 'Chỉnh sửa dịch vụ'}
+            </h3>
             <div>
-              <label className="block text-xs text-[#5E5852] mb-1">Tên dịch vụ</label>
+              <label className="block text-xs text-[#5E5852] mb-1">Tên dịch vụ *</label>
               <input
                 required
-                value={editingService.serviceName}
-                onChange={(e) => setEditingService({ ...editingService, serviceName: e.target.value })}
+                value={serviceModal.data.serviceName}
+                onChange={(e) =>
+                  setServiceModal({
+                    ...serviceModal,
+                    data: { ...serviceModal.data, serviceName: e.target.value },
+                  })
+                }
                 className="w-full h-9 rounded-lg border border-[#D9D1C5] px-3"
               />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs text-[#5E5852] mb-1">Đơn vị</label>
+                <label className="block text-xs text-[#5E5852] mb-1">Đơn vị *</label>
                 <input
                   required
-                  value={editingService.unit}
-                  onChange={(e) => setEditingService({ ...editingService, unit: e.target.value })}
+                  value={serviceModal.data.unit}
+                  onChange={(e) =>
+                    setServiceModal({ ...serviceModal, data: { ...serviceModal.data, unit: e.target.value } })
+                  }
                   className="w-full h-9 rounded-lg border border-[#D9D1C5] px-3"
                 />
               </div>
               <div>
-                <label className="block text-xs text-[#5E5852] mb-1">Giá (VND)</label>
+                <label className="block text-xs text-[#5E5852] mb-1">Giá (VND) *</label>
                 <input
                   type="number"
                   required
-                  value={editingService.price}
-                  onChange={(e) => setEditingService({ ...editingService, price: Number(e.target.value) })}
+                  min={0}
+                  value={serviceModal.data.price}
+                  onChange={(e) =>
+                    setServiceModal({
+                      ...serviceModal,
+                      data: { ...serviceModal.data, price: Number(e.target.value) },
+                    })
+                  }
                   className="w-full h-9 rounded-lg border border-[#D9D1C5] px-3 font-mono-num"
                 />
               </div>
@@ -785,13 +1077,13 @@ export const CatalogCrudTab: React.FC<{
             <div className="flex justify-end gap-2 pt-2">
               <button
                 type="button"
-                onClick={() => setEditingService(null)}
+                onClick={() => setServiceModal(null)}
                 className="px-4 py-2 rounded-lg border border-[#D9D1C5] text-xs font-semibold cursor-pointer"
               >
                 Đóng
               </button>
               <button type="submit" className="btn-primary px-4 py-2 rounded-lg text-xs cursor-pointer">
-                Lưu dịch vụ
+                {serviceModal.mode === 'create' ? 'Thêm dịch vụ' : 'Lưu dịch vụ'}
               </button>
             </div>
           </form>

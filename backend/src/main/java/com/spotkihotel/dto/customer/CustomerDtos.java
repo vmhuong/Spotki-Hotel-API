@@ -7,6 +7,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 public class CustomerDtos {
@@ -24,6 +25,7 @@ public class CustomerDtos {
         private String address;
         private Boolean isVip;
         private Integer loyaltyPoints;
+        private BigDecimal totalSpent;
         private String membershipTier;
         private LocalDateTime createdAt;
     }

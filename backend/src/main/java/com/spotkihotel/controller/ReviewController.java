@@ -48,22 +48,24 @@ public class ReviewController {
 
     @GetMapping("/admin/reviews")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
-    @Operation(summary = "List all reviews including hidden for moderation")
+    @Operation(summary = "List all reviews including hidden for moderation (scoped by branch for managers)")
     public ResponseEntity<ApiResponse<Page<ReviewResponse>>> adminListReviews(
             @RequestParam(required = false) ReviewStatus status,
             @RequestParam(required = false) Integer roomId,
+            @AuthenticationPrincipal UserPrincipal principal,
             @PageableDefault(size = 20) Pageable pageable
     ) {
-        return ResponseEntity.ok(ApiResponse.ok(reviewService.adminListReviews(status, roomId, pageable)));
+        return ResponseEntity.ok(ApiResponse.ok(reviewService.adminListReviews(status, roomId, principal, pageable)));
     }
 
     @PatchMapping("/admin/reviews/{id}/status")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
-    @Operation(summary = "Show or hide a review (Admin/Manager)")
+    @Operation(summary = "Show or hide a review (Admin/Manager, scoped by branch for managers)")
     public ResponseEntity<ApiResponse<ReviewResponse>> updateStatus(
             @PathVariable Integer id,
-            @RequestParam ReviewStatus status
+            @RequestParam ReviewStatus status,
+            @AuthenticationPrincipal UserPrincipal principal
     ) {
-        return ResponseEntity.ok(ApiResponse.ok("Review status updated", reviewService.updateReviewStatus(id, status)));
+        return ResponseEntity.ok(ApiResponse.ok("Review status updated", reviewService.updateReviewStatus(id, status, principal)));
     }
 }

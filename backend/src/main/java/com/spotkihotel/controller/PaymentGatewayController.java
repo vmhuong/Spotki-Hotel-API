@@ -31,11 +31,31 @@ public class PaymentGatewayController {
         return ResponseEntity.ok(ApiResponse.ok("Payment initiated", paymentGatewayService.initiatePayment(request, principal)));
     }
 
+    @GetMapping("/status/{appTransId}")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Poll current status of a VietQR / gateway transaction")
+    public ResponseEntity<ApiResponse<GatewayStatusResponse>> status(@PathVariable String appTransId) {
+        return ResponseEntity.ok(ApiResponse.ok(paymentGatewayService.getGatewayStatus(appTransId)));
+    }
+
     @PostMapping("/callback")
     @Operation(summary = "Idempotent payment webhook callback with HMAC-SHA256 verification")
     public ResponseEntity<ApiResponse<GatewayCallbackResponse>> callback(
             @Valid @RequestBody GatewayCallbackRequest request
     ) {
         return ResponseEntity.ok(ApiResponse.ok("Callback processed", paymentGatewayService.handleCallback(request)));
+    }
+
+    @PostMapping("/vietqr-webhook")
+    @Operation(summary = "VietQR bank transfer webhook receiver (auto-credits booking invoice by appTransId or bookingCode)")
+    public ResponseEntity<ApiResponse<GatewayCallbackResponse>> vietqrWebhook(
+            @RequestBody VietQrWebhookRequest request,
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestHeader(value = "X-Webhook-Secret", required = false) String webhookSecretHeader
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "VietQR webhook processed",
+                paymentGatewayService.handleVietQrWebhook(request, authHeader, webhookSecretHeader)
+        ));
     }
 }

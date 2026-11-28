@@ -7,6 +7,12 @@ interface InvoiceModalProps {
   onClose: () => void;
 }
 
+const formatViDate = (iso?: string) => {
+  if (!iso) return '—';
+  const [y, m, d] = iso.split('-');
+  return y && m && d ? `${d}/${m}/${y}` : iso;
+};
+
 export const InvoiceModal: React.FC<InvoiceModalProps> = ({ invoice, onClose }) => {
   if (!invoice) return null;
 
@@ -15,7 +21,11 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({ invoice, onClose }) 
 
   const lineItems: Array<{ name: string; qty: number; unitPrice: number; total: number }> = [
     {
-      name: 'Tiền phòng lưu trú',
+      name: invoice.roomNumber
+        ? `Tiền phòng ${invoice.roomNumber} · ${invoice.packageName || invoice.roomType || ''} (${
+            invoice.pricingMode === 'hour' ? 'Theo giờ' : 'Theo đêm'
+          })`
+        : 'Tiền phòng lưu trú',
       qty: 1,
       unitPrice: invoice.roomCharge,
       total: invoice.roomCharge,
@@ -93,24 +103,73 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({ invoice, onClose }) 
             </div>
           </div>
 
-          {/* Bill Metadata */}
-          <div className="py-3.5 border-b border-dashed border-[#181615] grid grid-cols-2 gap-x-4 gap-y-1.5 font-mono-num text-[11px]">
-            <div>
-              <span className="font-sans text-[#5E5852]">Số hóa đơn: </span>
-              <strong>HD-{invoice.bookingCode}</strong>
+          {/* Bill Metadata + Stay & Member Details */}
+          <div className="py-3.5 border-b border-dashed border-[#181615] space-y-2.5 text-[11px]">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono-num">
+              <div>
+                <span className="font-sans text-[#5E5852]">Số hóa đơn: </span>
+                <strong>HD-{invoice.bookingCode}</strong>
+              </div>
+              <div className="text-right">
+                <span className="font-sans text-[#5E5852]">Ngày in: </span>
+                <span>{printedAt}</span>
+              </div>
+              <div>
+                <span className="font-sans text-[#5E5852]">Mã đặt phòng: </span>
+                <strong>{invoice.bookingCode}</strong>
+              </div>
+              <div className="text-right">
+                <span className="font-sans text-[#5E5852]">Trạng thái: </span>
+                <strong>{isSettled ? 'ĐÃ TẤT TOÁN' : 'CHƯA TẤT TOÁN'}</strong>
+              </div>
             </div>
-            <div className="text-right">
-              <span className="font-sans text-[#5E5852]">Ngày in: </span>
-              <span>{printedAt}</span>
-            </div>
-            <div>
-              <span className="font-sans text-[#5E5852]">Mã đặt phòng: </span>
-              <strong>{invoice.bookingCode}</strong>
-            </div>
-            <div className="text-right">
-              <span className="font-sans text-[#5E5852]">Trạng thái: </span>
-              <strong>{isSettled ? 'ĐÃ TẤT TOÁN' : 'CHƯA TẤT TOÁN'}</strong>
-            </div>
+
+            {invoice.roomNumber && (
+              <div className="pt-2 border-t border-dotted border-[#C9C0B3] grid grid-cols-2 gap-x-4 gap-y-1">
+                <div>
+                  <span className="text-[#5E5852]">Phòng / Gói: </span>
+                  <strong>
+                    P.{invoice.roomNumber} · {invoice.packageName || invoice.roomType}
+                  </strong>
+                </div>
+                <div className="text-right font-mono-num">
+                  <span className="font-sans text-[#5E5852]">Chi nhánh: </span>
+                  <span>{invoice.hotelName || 'Spotki Hotel'}</span>
+                </div>
+                <div>
+                  <span className="text-[#5E5852]">Giờ vào: </span>
+                  <span className="font-mono-num">
+                    {invoice.checkInAt ? formatDateTime(invoice.checkInAt) : formatViDate(invoice.checkIn)}
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="text-[#5E5852]">Giờ ra: </span>
+                  <span className="font-mono-num">
+                    {invoice.checkedOutAt
+                      ? formatDateTime(invoice.checkedOutAt)
+                      : invoice.expectedCheckOutAt
+                        ? formatDateTime(invoice.expectedCheckOutAt)
+                        : formatViDate(invoice.checkOut)}
+                  </span>
+                </div>
+                {invoice.guestName && (
+                  <>
+                    <div>
+                      <span className="text-[#5E5852]">Thành viên: </span>
+                      <strong>
+                        {invoice.guestName} ({invoice.guestMembershipTier || 'Thành viên'})
+                      </strong>
+                    </div>
+                    <div className="text-right font-mono-num">
+                      <span className="font-sans text-[#5E5852]">SĐT/Điểm: </span>
+                      <span>
+                        {invoice.guestPhone || '—'} · {invoice.guestLoyaltyPoints ?? 0}đ
+                      </span>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Itemized Paper Receipt Table */}

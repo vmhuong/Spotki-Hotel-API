@@ -38,6 +38,28 @@ public class BookingController {
                 .body(ApiResponse.ok("Booking created with 50% deposit", bookingService.createBooking(request, principal)));
     }
 
+    @PostMapping("/admin/bookings/walk-in")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'RECEPTION')")
+    @Operation(summary = "Create a walk-in booking at front desk with optional immediate check-in")
+    public ResponseEntity<ApiResponse<BookingResponse>> createWalkInBooking(
+            @Valid @RequestBody WalkInBookingRequest request,
+            @AuthenticationPrincipal UserPrincipal principal
+    ) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.ok("Walk-in booking created", bookingService.createWalkInBooking(request, principal)));
+    }
+
+    @PutMapping("/admin/bookings/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'RECEPTION')")
+    @Operation(summary = "Update a pending ('booked') booking's room, dates/hours, guests, or contact info")
+    public ResponseEntity<ApiResponse<BookingResponse>> adminUpdateBooking(
+            @PathVariable Integer id,
+            @Valid @RequestBody AdminUpdateBookingRequest request,
+            @AuthenticationPrincipal UserPrincipal principal
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok("Booking updated", bookingService.adminUpdateBooking(id, request, principal)));
+    }
+
     @GetMapping("/bookings/lookup")
     @Operation(summary = "Lookup a guest booking by bookingCode and contact phone")
     public ResponseEntity<ApiResponse<BookingResponse>> lookupBooking(
@@ -78,7 +100,7 @@ public class BookingController {
     }
 
     @GetMapping("/admin/bookings")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'RECEPTION', 'ACCOUNTING')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'RECEPTION', 'ACCOUNTING', 'HOUSEKEEPING')")
     @Operation(summary = "List bookings for admin/staff (scoped by branch for non-admin)")
     public ResponseEntity<ApiResponse<Page<BookingResponse>>> adminListBookings(
             @RequestParam(required = false) Integer hotelId,
@@ -101,7 +123,7 @@ public class BookingController {
     }
 
     @PostMapping("/admin/bookings/{id}/services")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'RECEPTION')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'RECEPTION', 'ACCOUNTING')")
     @Operation(summary = "Add room service to a booking")
     public ResponseEntity<ApiResponse<BookingServiceItemResponse>> addService(
             @PathVariable Integer id,
@@ -112,9 +134,20 @@ public class BookingController {
                 .body(ApiResponse.ok("Service added", bookingService.addServiceToBooking(id, request, principal)));
     }
 
+    @DeleteMapping("/admin/bookings/{id}/services/{itemId}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'RECEPTION', 'ACCOUNTING')")
+    @Operation(summary = "Remove a service item from a booking before final checkout")
+    public ResponseEntity<ApiResponse<InvoiceSummaryResponse>> removeService(
+            @PathVariable Integer id,
+            @PathVariable Integer itemId,
+            @AuthenticationPrincipal UserPrincipal principal
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok("Service removed", bookingService.removeServiceFromBooking(id, itemId, principal)));
+    }
+
     @PostMapping("/admin/bookings/{id}/payments")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'RECEPTION', 'ACCOUNTING')")
-    @Operation(summary = "Record a payment for a booking")
+    @Operation(summary = "Record a payment for a booking (Cash, Card, Points with member verification)")
     public ResponseEntity<ApiResponse<PaymentResponse>> recordPayment(
             @PathVariable Integer id,
             @Valid @RequestBody RecordPaymentRequest request,
@@ -122,6 +155,28 @@ public class BookingController {
     ) {
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.ok("Payment recorded", bookingService.recordPayment(id, request, principal)));
+    }
+
+    @DeleteMapping("/admin/bookings/{id}/payments/{paymentId}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'RECEPTION', 'ACCOUNTING')")
+    @Operation(summary = "Remove a non-bank-transfer payment before final checkout (refunds loyalty points if applicable)")
+    public ResponseEntity<ApiResponse<InvoiceSummaryResponse>> removePayment(
+            @PathVariable Integer id,
+            @PathVariable Integer paymentId,
+            @AuthenticationPrincipal UserPrincipal principal
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok("Payment removed", bookingService.removePaymentFromBooking(id, paymentId, principal)));
+    }
+
+    @PostMapping("/admin/bookings/{id}/member")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'RECEPTION', 'ACCOUNTING')")
+    @Operation(summary = "Attach/verify a member guest profile onto an active booking bill by guestId or phone/CCCD")
+    public ResponseEntity<ApiResponse<InvoiceSummaryResponse>> attachMember(
+            @PathVariable Integer id,
+            @RequestBody AttachMemberRequest request,
+            @AuthenticationPrincipal UserPrincipal principal
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok("Member linked to booking", bookingService.attachMemberToBooking(id, request, principal)));
     }
 
     @PostMapping("/admin/bookings/{id}/check-out")

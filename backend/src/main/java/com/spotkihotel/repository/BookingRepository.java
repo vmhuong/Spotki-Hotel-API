@@ -43,6 +43,10 @@ public interface BookingRepository extends JpaRepository<Booking, Integer>, JpaS
 
     long countByStatus(BookingStatus status);
 
+    long countByRoomHotelId(Integer hotelId);
+
+    long countByRoomHotelIdAndStatus(Integer hotelId, BookingStatus status);
+
     @Query("""
         SELECT b.room.id, b.room.roomNumber, b.room.roomType, b.room.hotel.hotelName, COUNT(b)
         FROM Booking b
@@ -51,6 +55,16 @@ public interface BookingRepository extends JpaRepository<Booking, Integer>, JpaS
         ORDER BY COUNT(b) DESC
         """)
     List<Object[]> findTopBookedRooms(Pageable pageable);
+
+    @Query("""
+        SELECT b.room.id, b.room.roomNumber, b.room.roomType, b.room.hotel.hotelName, COUNT(b)
+        FROM Booking b
+        WHERE b.status <> com.spotkihotel.entity.enums.BookingStatus.cancelled
+          AND b.room.hotel.id = :hotelId
+        GROUP BY b.room.id, b.room.roomNumber, b.room.roomType, b.room.hotel.hotelName
+        ORDER BY COUNT(b) DESC
+        """)
+    List<Object[]> findTopBookedRoomsByHotel(@Param("hotelId") Integer hotelId, Pageable pageable);
 
     List<Booking> findByStatusAndCheckInBefore(BookingStatus status, LocalDate date);
 
@@ -62,4 +76,13 @@ public interface BookingRepository extends JpaRepository<Booking, Integer>, JpaS
         ORDER BY b.checkIn ASC
         """)
     List<Object[]> findActiveBookedRanges(@Param("roomId") Integer roomId, @Param("fromDate") LocalDate fromDate);
+
+    @Query("""
+        SELECT b FROM Booking b
+        WHERE b.room.id = :roomId
+          AND b.status IN (com.spotkihotel.entity.enums.BookingStatus.booked, com.spotkihotel.entity.enums.BookingStatus.checked_in)
+          AND b.checkOut >= :fromDate
+        ORDER BY b.checkIn ASC, b.checkInAt ASC
+        """)
+    List<Booking> findActiveUpcomingBookings(@Param("roomId") Integer roomId, @Param("fromDate") LocalDate fromDate);
 }

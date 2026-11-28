@@ -66,9 +66,12 @@ public class ReviewService {
     }
 
     @Transactional(readOnly = true)
-    public Page<ReviewResponse> adminListReviews(ReviewStatus status, Integer roomId, Pageable pageable) {
+    public Page<ReviewResponse> adminListReviews(ReviewStatus status, Integer roomId, UserPrincipal principal, Pageable pageable) {
         Specification<Review> spec = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
+            if (principal != null && !principal.isAdminOrGlobalStaff() && principal.getHotelId() != null) {
+                predicates.add(cb.equal(root.get("room").get("hotel").get("id"), principal.getHotelId()));
+            }
             if (status != null) {
                 predicates.add(cb.equal(root.get("status"), status));
             }
@@ -82,9 +85,14 @@ public class ReviewService {
     }
 
     @Transactional
-    public ReviewResponse updateReviewStatus(Integer reviewId, ReviewStatus status) {
+    public ReviewResponse updateReviewStatus(Integer reviewId, ReviewStatus status, UserPrincipal principal) {
         Review review = reviewRepository.findById(reviewId)
                 .orElseThrow(() -> new ResourceNotFoundException("Review not found: " + reviewId));
+        if (principal != null && !principal.isAdminOrGlobalStaff() && principal.getHotelId() != null
+                && review.getRoom().getHotel() != null
+                && !principal.getHotelId().equals(review.getRoom().getHotel().getId())) {
+            throw new UnauthorizedException("You can only moderate reviews belonging to your hotel branch.");
+        }
         review.setStatus(status);
         review.setUpdatedAt(LocalDateTime.now());
         return toResponse(reviewRepository.save(review));

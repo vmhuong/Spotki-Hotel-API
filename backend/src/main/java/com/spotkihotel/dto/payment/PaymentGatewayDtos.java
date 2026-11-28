@@ -39,6 +39,38 @@ public class PaymentGatewayDtos {
         private String status;
         private String orderUrl;
         private String sampleHmacSignature;
+        private String qrImageUrl;
+        private String bankId;
+        private String accountNo;
+        private String accountName;
+        private String transferContent;
+        private String bookingCode;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class VietQrWebhookRequest {
+        private String appTransId;
+        private String bookingCode;
+        private String content;
+        private String description;
+        private BigDecimal transferAmount;
+        private BigDecimal amount;
+        private String referenceCode;
+        private String id;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class GatewayStatusResponse {
+        private String appTransId;
+        private String status;
+        private Integer paymentId;
+        private LocalDateTime paidAt;
+        private BigDecimal amount;
     }
 
     @Data

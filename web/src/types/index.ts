@@ -88,8 +88,13 @@ export interface Booking {
   hotelName: string;
   guestId: number;
   guestName: string;
+  contactName?: string;
+  contactPhone?: string;
+  note?: string;
   checkIn: string;
   checkOut: string;
+  checkInAt?: string;
+  expectedCheckOutAt?: string;
   pricingMode: PricingMode;
   adults: number;
   children: number;
@@ -122,11 +127,35 @@ export interface PaymentResponse {
   payerName?: string;
   cashierName?: string;
   note?: string;
+  bankTransfer?: boolean;
 }
 
 export interface InvoiceSummary {
   bookingId: number;
   bookingCode: string;
+  bookingStatus?: BookingStatus;
+  hotelName?: string;
+  hotelAddress?: string;
+  hotelPhone?: string;
+  roomNumber?: string;
+  roomType?: string;
+  packageName?: string;
+  pricingMode?: PricingMode;
+  adults?: number;
+  children?: number;
+  checkIn?: string;
+  checkOut?: string;
+  checkInAt?: string;
+  expectedCheckOutAt?: string;
+  checkedOutAt?: string;
+  guestId?: number;
+  guestName?: string;
+  guestPhone?: string;
+  guestEmail?: string;
+  guestIdentityNo?: string;
+  guestIsVip?: boolean;
+  guestLoyaltyPoints?: number;
+  guestMembershipTier?: string;
   roomCharge: number;
   extraGuestSurcharge: number;
   serviceCharge: number;
@@ -138,6 +167,21 @@ export interface InvoiceSummary {
   loyaltyPointsEarned: number;
   services?: BookingServiceItemResponse[];
   payments?: PaymentResponse[];
+}
+
+export interface GatewayInitResponse {
+  provider: string;
+  appTransId: string;
+  amount: number;
+  status: string;
+  orderUrl: string;
+  sampleHmacSignature: string;
+  qrImageUrl?: string;
+  bankId?: string;
+  accountNo?: string;
+  accountName?: string;
+  transferContent?: string;
+  bookingCode?: string;
 }
 
 export interface Review {
@@ -161,6 +205,7 @@ export interface CustomerProfile {
   address?: string;
   isVip: boolean;
   loyaltyPoints: number;
+  totalSpent?: number;
   membershipTier: string;
   createdAt: string;
 }
@@ -185,6 +230,8 @@ export interface Guest {
   address?: string;
   isVip: boolean;
   loyaltyPoints: number;
+  totalSpent?: number;
+  membershipTier?: string;
   customerIsActive: boolean;
   createdAt: string;
 }

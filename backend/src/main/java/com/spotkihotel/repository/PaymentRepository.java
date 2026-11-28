@@ -20,8 +20,27 @@ public interface PaymentRepository extends JpaRepository<Payment, Integer>, JpaS
     @Query("SELECT COALESCE(SUM(p.amount), 0) FROM Payment p WHERE p.booking.id = :bookingId")
     BigDecimal sumPaidByBookingId(@Param("bookingId") Integer bookingId);
 
+    @Query("""
+        SELECT COALESCE(SUM(p.amount), 0) FROM Payment p
+        WHERE p.booking.guest.id = :guestId
+          AND p.booking.status <> com.spotkihotel.entity.enums.BookingStatus.cancelled
+        """)
+    BigDecimal sumTotalSpentByGuestId(@Param("guestId") Integer guestId);
+
+    @Query("""
+        SELECT p.booking.guest.id, COALESCE(SUM(p.amount), 0)
+        FROM Payment p
+        WHERE p.booking.guest.id IN :guestIds
+          AND p.booking.status <> com.spotkihotel.entity.enums.BookingStatus.cancelled
+        GROUP BY p.booking.guest.id
+        """)
+    List<Object[]> sumTotalSpentByGuestIds(@Param("guestIds") List<Integer> guestIds);
+
     @Query("SELECT COALESCE(SUM(p.amount), 0) FROM Payment p")
     BigDecimal sumTotalRevenue();
+
+    @Query("SELECT COALESCE(SUM(p.amount), 0) FROM Payment p WHERE p.booking.room.hotel.id = :hotelId")
+    BigDecimal sumTotalRevenueByHotel(@Param("hotelId") Integer hotelId);
 
     @Override
     @EntityGraph(attributePaths = {"booking", "booking.room", "booking.room.hotel"})

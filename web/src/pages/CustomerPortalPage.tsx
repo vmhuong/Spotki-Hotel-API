@@ -6,23 +6,27 @@ import { useToast } from '../context/ToastContext';
 import type { ApiResponse, Booking, CustomerProfile, InvoiceSummary } from '../types';
 import { BOOKING_STATUS_BADGE, formatVnd } from '../utils/format';
 
-function getLoyaltyProgress(points: number) {
-  if (points >= 1500) return { nextTier: 'Platinum (Tối đa)', remaining: 0, percent: 100 };
-  if (points >= 500) {
+function getSpendingTierProgress(totalSpent: number) {
+  if (totalSpent >= 15000000) return { nextTier: 'Platinum (Tối đa)', remaining: 0, percent: 100 };
+  if (totalSpent >= 5000000) {
     return {
-      nextTier: 'Platinum (1.500 điểm)',
-      remaining: 1500 - points,
-      percent: Math.round(((points - 500) / 1000) * 100),
+      nextTier: 'Platinum (15.000.000₫)',
+      remaining: 15000000 - totalSpent,
+      percent: Math.round(((totalSpent - 5000000) / 10000000) * 100),
     };
   }
-  if (points >= 100) {
+  if (totalSpent >= 1000000) {
     return {
-      nextTier: 'Gold (500 điểm)',
-      remaining: 500 - points,
-      percent: Math.round(((points - 100) / 400) * 100),
+      nextTier: 'Gold (5.000.000₫)',
+      remaining: 5000000 - totalSpent,
+      percent: Math.round(((totalSpent - 1000000) / 4000000) * 100),
     };
   }
-  return { nextTier: 'Silver (100 điểm)', remaining: 100 - points, percent: Math.round((points / 100) * 100) };
+  return {
+    nextTier: 'Silver (1.000.000₫)',
+    remaining: 1000000 - totalSpent,
+    percent: Math.round((totalSpent / 1000000) * 100),
+  };
 }
 
 const BookingJourneyBar: React.FC<{ status: Booking['status'] }> = ({ status }) => {
@@ -199,10 +203,11 @@ export const CustomerPortalPage: React.FC = () => {
   };
 
   const totalPaid = bookings.reduce((sum, b) => sum + (b.totalPaid || 0), 0);
+  const spentForTier = profile?.totalSpent ?? totalPaid;
   const activeCount = bookings.filter((b) => b.status === 'booked' || b.status === 'checked_in').length;
   const completedCount = bookings.filter((b) => b.status === 'checked_out').length;
   const filteredBookings = bookings.filter((b) => (statusFilter === 'all' ? true : b.status === statusFilter));
-  const loyalty = profile ? getLoyaltyProgress(profile.loyaltyPoints) : null;
+  const loyalty = profile ? getSpendingTierProgress(spentForTier) : null;
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-7">
@@ -243,7 +248,10 @@ export const CustomerPortalPage: React.FC = () => {
                   Hạng {profile.membershipTier} {profile.isVip ? '· VIP' : ''}
                 </div>
                 <div className="font-mono-num text-2xl font-bold mt-1">
-                  {profile.loyaltyPoints.toLocaleString('vi-VN')} điểm
+                  {formatVnd(spentForTier)}
+                </div>
+                <div className="text-xs text-[#A89F95] mt-0.5 font-mono-num">
+                  Điểm khả dụng: {profile.loyaltyPoints.toLocaleString('vi-VN')} điểm
                 </div>
               </div>
               <span className="font-mono-num text-xs font-bold text-[#B8925A]">{loyalty.percent}%</span>
@@ -256,7 +264,7 @@ export const CustomerPortalPage: React.FC = () => {
             </div>
             <p className="text-xs text-[#B8B0A6]">
               {loyalty.remaining > 0
-                ? `Còn ${loyalty.remaining} điểm nữa để lên hạng ${loyalty.nextTier}.`
+                ? `Còn chi tiêu thêm ${formatVnd(loyalty.remaining)} để lên hạng ${loyalty.nextTier}.`
                 : 'Bạn đang ở hạng thành viên cao nhất.'}
             </p>
           </div>

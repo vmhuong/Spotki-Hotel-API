@@ -36,6 +36,7 @@ class BookingServiceUnitTest {
     @Mock private HotelServiceRepository hotelServiceRepository;
     @Mock private BookingServiceItemRepository bookingServiceItemRepository;
     @Mock private PaymentRepository paymentRepository;
+    @Mock private PaymentGatewayTransactionRepository paymentGatewayTransactionRepository;
     @Mock private SecurityLogService securityLogService;
 
     @InjectMocks

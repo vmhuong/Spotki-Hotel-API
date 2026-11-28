@@ -33,9 +33,12 @@ public class ReportController {
 
     @GetMapping("/reports/summary")
     @PreAuthorize("hasAnyRole('ADMIN', 'ACCOUNTING', 'MANAGER')")
-    @Operation(summary = "Get operational & revenue summary")
-    public ResponseEntity<ApiResponse<ReportSummaryResponse>> getSummary() {
-        return ResponseEntity.ok(ApiResponse.ok(reportService.getSummary()));
+    @Operation(summary = "Get operational & revenue summary (scoped by branch for non-global staff)")
+    public ResponseEntity<ApiResponse<ReportSummaryResponse>> getSummary(
+            @RequestParam(required = false) Integer hotelId,
+            @AuthenticationPrincipal UserPrincipal principal
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(reportService.getSummary(hotelId, principal)));
     }
 
     @GetMapping("/payments")
@@ -65,10 +68,12 @@ public class ReportController {
 
     @GetMapping("/reports/top-rooms")
     @PreAuthorize("hasAnyRole('ADMIN', 'ACCOUNTING', 'MANAGER')")
-    @Operation(summary = "Get top booked rooms")
+    @Operation(summary = "Get top booked rooms (scoped by branch for non-global staff)")
     public ResponseEntity<ApiResponse<List<TopRoomReportResponse>>> getTopRooms(
-            @RequestParam(defaultValue = "5") int limit
+            @RequestParam(defaultValue = "5") int limit,
+            @RequestParam(required = false) Integer hotelId,
+            @AuthenticationPrincipal UserPrincipal principal
     ) {
-        return ResponseEntity.ok(ApiResponse.ok(reportService.getTopRooms(limit)));
+        return ResponseEntity.ok(ApiResponse.ok(reportService.getTopRooms(limit, hotelId, principal)));
     }
 }

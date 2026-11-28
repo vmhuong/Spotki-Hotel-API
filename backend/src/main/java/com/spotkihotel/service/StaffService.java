@@ -29,7 +29,7 @@ public class StaffService {
     private final PasswordEncoder passwordEncoder;
 
     @Transactional(readOnly = true)
-    public Page<StaffResponse> listStaff(Integer hotelId, StaffRole role, UserPrincipal principal, Pageable pageable) {
+    public Page<StaffResponse> listStaff(Integer hotelId, StaffRole role, String keyword, UserPrincipal principal, Pageable pageable) {
         Integer scopedHotel = principal.isAdminOrGlobalStaff() ? hotelId : principal.getHotelId();
         Specification<AdminUser> spec = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
@@ -39,6 +39,14 @@ public class StaffService {
             if (role != null) {
                 predicates.add(cb.equal(root.get("role"), role));
             }
+            if (keyword != null && !keyword.isBlank()) {
+                String pattern = "%" + keyword.trim().toLowerCase() + "%";
+                predicates.add(cb.or(
+                        cb.like(cb.lower(root.get("username")), pattern),
+                        cb.like(cb.lower(root.get("fullName")), pattern),
+                        cb.like(cb.lower(root.get("email")), pattern)
+                ));
+            }
             return cb.and(predicates.toArray(new Predicate[0]));
         };
         return adminUserRepository.findAll(spec, pageable).map(this::toResponse);
@@ -46,11 +54,12 @@ public class StaffService {
 
     @Transactional
     public StaffResponse createStaff(CreateStaffRequest request, UserPrincipal principal) {
-        if (adminUserRepository.existsByUsername(request.getUsername().trim())) {
-            throw new ConflictException("Username already exists: " + request.getUsername());
+        String cleanUsername = request.getUsername().trim();
+        if (adminUserRepository.existsByUsername(cleanUsername)) {
+            throw new ConflictException("Username already exists: " + cleanUsername);
         }
 
-        Integer targetHotelId = request.getHotelId();
+        Integer targetHotelId = normalizeHotelId(request.getHotelId());
         if (!principal.isAdminOrGlobalStaff()) {
             if (request.getRole() == StaffRole.admin) {
                 throw new UnauthorizedException("Branch managers cannot create global admin accounts.");
@@ -58,11 +67,13 @@ public class StaffService {
             targetHotelId = principal.getHotelId();
         }
 
+        String cleanEmail = normalizeNullable(request.getEmail());
+
         AdminUser user = adminUserRepository.save(AdminUser.builder()
-                .username(request.getUsername().trim())
+                .username(cleanUsername)
                 .passwordHash(passwordEncoder.encode(request.getPassword()))
                 .fullName(request.getFullName().trim())
-                .email(request.getEmail())
+                .email(cleanEmail)
                 .role(request.getRole())
                 .hotelId(targetHotelId)
                 .isActive(true)
@@ -83,20 +94,60 @@ public class StaffService {
             throw new BusinessException("You cannot deactivate your own account.");
         }
 
-        if (request.getFullName() != null) staff.setFullName(request.getFullName().trim());
-        if (request.getEmail() != null) staff.setEmail(request.getEmail());
+        if (request.getUsername() != null) {
+            String cleanUsername = request.getUsername().trim();
+            if (cleanUsername.isEmpty()) {
+                throw new BusinessException("Username cannot be empty.");
+            }
+            if (!cleanUsername.equals(staff.getUsername())) {
+                if (adminUserRepository.existsByUsername(cleanUsername)) {
+                    throw new ConflictException("Username already exists: " + cleanUsername);
+                }
+                staff.setUsername(cleanUsername);
+            }
+        }
+        if (request.getFullName() != null) {
+            if (request.getFullName().isBlank()) {
+                throw new BusinessException("Full name cannot be empty.");
+            }
+            staff.setFullName(request.getFullName().trim());
+        }
+        if (request.getEmail() != null) {
+            staff.setEmail(normalizeNullable(request.getEmail()));
+        }
         if (request.getRole() != null) {
             if (!principal.isAdminOrGlobalStaff() && request.getRole() == StaffRole.admin) {
                 throw new UnauthorizedException("Only global admin can assign admin role.");
             }
             staff.setRole(request.getRole());
         }
-        if (request.getHotelId() != null && principal.isAdminOrGlobalStaff()) {
-            staff.setHotelId(request.getHotelId());
+        if (principal.isAdminOrGlobalStaff()) {
+            if (Boolean.TRUE.equals(request.getClearHotel()) || (request.getHotelId() != null && request.getHotelId() == 0)) {
+                staff.setHotelId(null);
+            } else if (request.getHotelId() != null) {
+                staff.setHotelId(request.getHotelId());
+            }
         }
-        if (request.getIsActive() != null) staff.setIsActive(request.getIsActive());
+        if (request.getIsActive() != null) {
+            staff.setIsActive(request.getIsActive());
+        }
+        if (request.getNewPassword() != null && !request.getNewPassword().isBlank()) {
+            if (request.getNewPassword().length() < 10) {
+                throw new BusinessException("New password must be at least 10 characters.");
+            }
+            staff.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        }
 
         return toResponse(adminUserRepository.save(staff));
+    }
+
+    private Integer normalizeHotelId(Integer hotelId) {
+        return (hotelId == null || hotelId <= 0) ? null : hotelId;
+    }
+
+    private String normalizeNullable(String value) {
+        if (value == null || value.isBlank()) return null;
+        return value.trim();
     }
 
     private StaffResponse toResponse(AdminUser user) {

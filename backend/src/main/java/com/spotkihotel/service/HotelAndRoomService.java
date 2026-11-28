@@ -163,12 +163,23 @@ public class HotelAndRoomService {
 
     @Transactional(readOnly = true)
     public List<java.util.Map<String, String>> getRoomBookedDates(Integer roomId) {
-        return bookingRepository.findActiveBookedRanges(roomId, LocalDate.now())
+        return bookingRepository.findActiveUpcomingBookings(roomId, LocalDate.now())
                 .stream()
-                .map(row -> java.util.Map.of(
-                        "checkIn", row[0].toString(),
-                        "checkOut", row[1].toString()
-                ))
+                .map(b -> {
+                    java.util.Map<String, String> m = new java.util.LinkedHashMap<>();
+                    m.put("checkIn", b.getCheckIn().toString());
+                    m.put("checkOut", b.getCheckOut().toString());
+                    m.put("bookingCode", b.getBookingCode());
+                    m.put("status", b.getStatus().name());
+                    m.put("pricingMode", b.getPricingMode() != null ? b.getPricingMode().name() : "night");
+                    if (b.getCheckInAt() != null) {
+                        m.put("checkInAt", b.getCheckInAt().toString());
+                    }
+                    if (b.getExpectedCheckOutAt() != null) {
+                        m.put("expectedCheckOutAt", b.getExpectedCheckOutAt().toString());
+                    }
+                    return m;
+                })
                 .toList();
     }
 
@@ -210,6 +221,14 @@ public class HotelAndRoomService {
                 .orElseThrow(() -> new ResourceNotFoundException("Room not found: " + roomId));
         enforceRoomScope(principal, room);
 
+        String cleanNumber = request.getRoomNumber().trim();
+        if (!cleanNumber.equals(room.getRoomNumber())) {
+            if (roomRepository.existsByRoomNumber(cleanNumber)) {
+                throw new ConflictException("Room number already exists: " + cleanNumber);
+            }
+            room.setRoomNumber(cleanNumber);
+        }
+
         room.setRoomType(request.getRoomType().trim());
         room.setFloorNo(request.getFloorNo());
         room.setCapacity(request.getCapacity());
@@ -224,6 +243,12 @@ public class HotelAndRoomService {
         room.setPackageName(request.getPackageName());
         if (request.getImageUrl() != null) room.setImageUrl(request.getImageUrl());
         if (request.getGalleryUrls() != null) room.setGalleryUrls(request.getGalleryUrls());
+        if (request.getStatus() != null) {
+            room.setStatus(request.getStatus());
+            if (request.getStatus() == RoomStatus.available) {
+                room.setHousekeepingStatus(null);
+            }
+        }
         return toRoomResponse(roomRepository.save(room));
     }
 

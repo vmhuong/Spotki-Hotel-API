@@ -2,6 +2,7 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: spotki-postgres
+    restart: "no"
     environment:
       POSTGRES_DB: hotel_manager
       POSTGRES_USER: postgres
@@ -19,12 +20,14 @@ services:
   redis:
     image: redis:7-alpine
     container_name: spotki-redis
+    restart: "no"
     ports:
       - "6379:6379"
 
   api:
     build: ./backend
     container_name: spotki-hotel-api
+    restart: "no"
     depends_on:
       postgres:
         condition: service_healthy
@@ -48,6 +51,7 @@ services:
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8088}
     container_name: spotki-hotel-web
+    restart: "no"
     depends_on:
       - api
     ports:

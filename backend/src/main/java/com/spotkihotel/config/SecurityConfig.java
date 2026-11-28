@@ -56,7 +56,8 @@ public class SecurityConfig {
                                 "/api/v1/auth/customer/**",
                                 "/api/v1/auth/admin/login",
                                 "/api/v1/auth/refresh",
-                                "/api/v1/payments/gateway/callback"
+                                "/api/v1/payments/gateway/callback",
+                                "/api/v1/payments/gateway/vietqr-webhook"
                         ).permitAll()
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/hotels/**",
@@ -79,7 +80,7 @@ public class SecurityConfig {
         CorsConfiguration config = new CorsConfiguration();
         config.setAllowedOriginPatterns(List.of("*"));
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        config.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Requested-With"));
+        config.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Requested-With", "X-Webhook-Secret"));
         config.setAllowCredentials(true);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

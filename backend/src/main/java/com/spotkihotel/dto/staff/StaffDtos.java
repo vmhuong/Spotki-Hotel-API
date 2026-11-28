@@ -56,6 +56,7 @@ public class StaffDtos {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class UpdateStaffRequest {
+        private String username;
         private String fullName;
 
         @Email(message = "Invalid email format")
@@ -63,6 +64,9 @@ public class StaffDtos {
 
         private StaffRole role;
         private Integer hotelId;
+        private Boolean clearHotel;
         private Boolean isActive;
+
+        private String newPassword;
     }
 }

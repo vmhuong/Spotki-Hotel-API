@@ -28,5 +28,7 @@ public interface RoomRepository extends JpaRepository<Room, Integer>, JpaSpecifi
     @EntityGraph(attributePaths = {"hotel"})
     List<Room> findByIsActiveTrueAndHotelIdAndStatusInOrderByFloorNoAscRoomNumberAsc(Integer hotelId, List<RoomStatus> statuses);
 
+    List<Room> findByHotelId(Integer hotelId);
+
     boolean existsByRoomNumber(String roomNumber);
 }

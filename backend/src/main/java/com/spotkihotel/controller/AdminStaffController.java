@@ -32,10 +32,11 @@ public class AdminStaffController {
     public ResponseEntity<ApiResponse<Page<StaffResponse>>> listStaff(
             @RequestParam(required = false) Integer hotelId,
             @RequestParam(required = false) StaffRole role,
+            @RequestParam(required = false) String keyword,
             @AuthenticationPrincipal UserPrincipal principal,
             @PageableDefault(size = 15) Pageable pageable
     ) {
-        return ResponseEntity.ok(ApiResponse.ok(staffService.listStaff(hotelId, role, principal, pageable)));
+        return ResponseEntity.ok(ApiResponse.ok(staffService.listStaff(hotelId, role, keyword, principal, pageable)));
     }
 
     @PostMapping
@@ -49,7 +50,7 @@ public class AdminStaffController {
     }
 
     @PatchMapping("/{id}")
-    @Operation(summary = "Update staff role, branch, or active status")
+    @Operation(summary = "Update staff profile, role, branch, password, or active status")
     public ResponseEntity<ApiResponse<StaffResponse>> updateStaff(
             @PathVariable Integer id,
             @Valid @RequestBody UpdateStaffRequest request,

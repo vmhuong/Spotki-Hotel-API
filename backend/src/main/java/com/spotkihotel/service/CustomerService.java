@@ -6,17 +6,25 @@ import com.spotkihotel.entity.enums.ActorType;
 import com.spotkihotel.exception.BusinessException;
 import com.spotkihotel.exception.ResourceNotFoundException;
 import com.spotkihotel.repository.GuestRepository;
+import com.spotkihotel.repository.PaymentRepository;
 import com.spotkihotel.security.UserPrincipal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+
 @Service
 @RequiredArgsConstructor
 public class CustomerService {
 
+    private static final BigDecimal SILVER_SPENT_THRESHOLD = new BigDecimal("1000000");
+    private static final BigDecimal GOLD_SPENT_THRESHOLD = new BigDecimal("5000000");
+    private static final BigDecimal PLATINUM_SPENT_THRESHOLD = new BigDecimal("15000000");
+
     private final GuestRepository guestRepository;
+    private final PaymentRepository paymentRepository;
     private final PasswordEncoder passwordEncoder;
     private final SecurityLogService securityLogService;
 
@@ -56,9 +64,21 @@ public class CustomerService {
                 "Customer changed password");
     }
 
+    public static String resolveMembershipTier(BigDecimal totalSpent) {
+        BigDecimal spent = totalSpent != null ? totalSpent : BigDecimal.ZERO;
+        if (spent.compareTo(PLATINUM_SPENT_THRESHOLD) >= 0) return "Platinum";
+        if (spent.compareTo(GOLD_SPENT_THRESHOLD) >= 0) return "Gold";
+        if (spent.compareTo(SILVER_SPENT_THRESHOLD) >= 0) return "Silver";
+        return "Bronze";
+    }
+
     private CustomerProfileResponse toProfileResponse(Guest guest) {
         int pts = guest.getLoyaltyPoints() != null ? guest.getLoyaltyPoints() : 0;
-        String tier = pts >= 1500 ? "Platinum" : pts >= 500 ? "Gold" : pts >= 100 ? "Silver" : "Bronze";
+        BigDecimal totalSpent = paymentRepository.sumTotalSpentByGuestId(guest.getId());
+        if (totalSpent == null) {
+            totalSpent = BigDecimal.ZERO;
+        }
+        String tier = resolveMembershipTier(totalSpent);
         return CustomerProfileResponse.builder()
                 .id(guest.getId())
                 .fullName(guest.getFullName())
@@ -68,6 +88,7 @@ public class CustomerService {
                 .address(guest.getAddress())
                 .isVip(guest.getIsVip())
                 .loyaltyPoints(pts)
+                .totalSpent(totalSpent)
                 .membershipTier(tier)
                 .createdAt(guest.getCreatedAt())
                 .build();

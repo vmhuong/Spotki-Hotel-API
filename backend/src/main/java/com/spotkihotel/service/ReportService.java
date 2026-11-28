@@ -38,21 +38,41 @@ public class ReportService {
 
     @Transactional(readOnly = true)
     public ReportSummaryResponse getSummary() {
-        var rooms = roomRepository.findAll();
+        return getSummary(null, null);
+    }
+
+    @Transactional(readOnly = true)
+    public ReportSummaryResponse getSummary(Integer hotelId, UserPrincipal principal) {
+        Integer scopedHotel = resolveScopedHotel(hotelId, principal);
+        var rooms = scopedHotel != null ? roomRepository.findByHotelId(scopedHotel) : roomRepository.findAll();
         long available = rooms.stream().filter(r -> r.getStatus() == RoomStatus.available).count();
         long occupied = rooms.stream().filter(r -> r.getStatus() == RoomStatus.occupied).count();
         long cleaning = rooms.stream().filter(r -> r.getStatus() == RoomStatus.cleaning).count();
+
+        long totalBookings = scopedHotel != null ? bookingRepository.countByRoomHotelId(scopedHotel) : bookingRepository.count();
+        long activeBooked = scopedHotel != null
+                ? bookingRepository.countByRoomHotelIdAndStatus(scopedHotel, BookingStatus.booked)
+                : bookingRepository.countByStatus(BookingStatus.booked);
+        long checkedIn = scopedHotel != null
+                ? bookingRepository.countByRoomHotelIdAndStatus(scopedHotel, BookingStatus.checked_in)
+                : bookingRepository.countByStatus(BookingStatus.checked_in);
+        long checkedOut = scopedHotel != null
+                ? bookingRepository.countByRoomHotelIdAndStatus(scopedHotel, BookingStatus.checked_out)
+                : bookingRepository.countByStatus(BookingStatus.checked_out);
+        BigDecimal totalRevenue = scopedHotel != null
+                ? paymentRepository.sumTotalRevenueByHotel(scopedHotel)
+                : paymentRepository.sumTotalRevenue();
 
         return ReportSummaryResponse.builder()
                 .totalRooms(rooms.size())
                 .availableRooms(available)
                 .occupiedRooms(occupied)
                 .cleaningRooms(cleaning)
-                .totalBookings(bookingRepository.count())
-                .activeBookedCount(bookingRepository.countByStatus(BookingStatus.booked))
-                .checkedInCount(bookingRepository.countByStatus(BookingStatus.checked_in))
-                .checkedOutCount(bookingRepository.countByStatus(BookingStatus.checked_out))
-                .totalRevenue(paymentRepository.sumTotalRevenue())
+                .totalBookings(totalBookings)
+                .activeBookedCount(activeBooked)
+                .checkedInCount(checkedIn)
+                .checkedOutCount(checkedOut)
+                .totalRevenue(totalRevenue != null ? totalRevenue : BigDecimal.ZERO)
                 .build();
     }
 
@@ -109,8 +129,17 @@ public class ReportService {
 
     @Transactional(readOnly = true)
     public List<TopRoomReportResponse> getTopRooms(int limit) {
-        return bookingRepository.findTopBookedRooms(PageRequest.of(0, Math.max(1, limit)))
-                .stream()
+        return getTopRooms(limit, null, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<TopRoomReportResponse> getTopRooms(int limit, Integer hotelId, UserPrincipal principal) {
+        Integer scopedHotel = resolveScopedHotel(hotelId, principal);
+        PageRequest topPage = PageRequest.of(0, Math.max(1, limit));
+        List<Object[]> rows = scopedHotel != null
+                ? bookingRepository.findTopBookedRoomsByHotel(scopedHotel, topPage)
+                : bookingRepository.findTopBookedRooms(topPage);
+        return rows.stream()
                 .map(row -> TopRoomReportResponse.builder()
                         .roomId((Integer) row[0])
                         .roomNumber((String) row[1])
@@ -119,6 +148,13 @@ public class ReportService {
                         .bookingCount((Long) row[4])
                         .build())
                 .toList();
+    }
+
+    private Integer resolveScopedHotel(Integer hotelId, UserPrincipal principal) {
+        if (principal == null || principal.isAdminOrGlobalStaff()) {
+            return hotelId;
+        }
+        return principal.getHotelId();
     }
 
     private PaymentRecordResponse toPaymentRecord(Payment p) {
